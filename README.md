@@ -1,3 +1,7 @@
+# ![Portada del proyecto](images\portada.png)
+# esphome-homeassistant-lab
+
+
 # Lista de piezas recomendadas
 
 A continuación se muestra una lista de módulos y componentes compatibles, con enlaces de ejemplo para su compra:
@@ -11,8 +15,7 @@ A continuación se muestra una lista de módulos y componentes compatibles, con 
 - [Módulo de expansión de interfaz IIC Hub I2C](https://es.aliexpress.com/item/1005002811407142.html)
 
 > Puedes usar módulos equivalentes compatibles con ESP32 y ESPHome.
-# ![Portada del proyecto](portada.png)
-# esphome-homeassistant-lab
+
 
 Ejemplos de integración de sensores ambientales (temperatura, humedad, presión, CO₂, etc.) y financieros (precio de ETF VWCE XETRA) con ESPHome y Home Assistant usando ESP32.
 
@@ -72,6 +75,7 @@ Cada archivo contiene comentarios explicativos sobre su propósito y uso.
 ---
 # Ejemplos de Configuración ESPHome y Home Assistant
 
+![Ejemplo de uso](images/Captura%20de%20pantalla%202026-03-31%20224607.png)
 Este repositorio contiene ejemplos prácticos para integrar un ESP32 con ESPHome y Home Assistant, mostrando cómo obtener y visualizar el precio de VWCE desde Yahoo Finance.
 
 ## Estructura
@@ -109,6 +113,7 @@ Este repositorio contiene ejemplos prácticos para integrar un ESP32 con ESPHome
      (Reemplaza `nombre-o-ip.local` por el nombre mDNS o la IP de tu ESP32, por ejemplo `vwce-ticker.local` o `192.168.1.106`).
 
 > Nota: La primera vez siempre debe ser por USB. Después, si tienes configurado OTA, puedes actualizar por WiFi cómodamente.
+
 
 ---
 
