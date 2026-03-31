@@ -1,5 +1,7 @@
 # esphome-homeassistant-lab
-<img src="images/portada.png" alt="Portada del proyecto" style="width:90%;">
+<div style="text-align:center;">
+  <img src="images/portada.png" alt="Portada del proyecto" style="width:50%;">
+</div>
 
 
 
@@ -76,7 +78,9 @@ Cada archivo contiene comentarios explicativos sobre su propósito y uso.
 ---
 # Ejemplos de Configuración ESPHome y Home Assistant
 
-<img src="images/Captura%20de%20pantalla%202026-03-31%20224607.png" alt="Ejemplo de uso" style="width:60%;">
+<div style="text-align:center;">
+  <img src="images/Captura%20de%20pantalla%202026-03-31%20224607.png" alt="Ejemplo de uso" style="width:50%;">
+</div>
 
 Este repositorio contiene ejemplos prácticos para integrar un ESP32 con ESPHome y Home Assistant, mostrando cómo obtener y visualizar el precio de VWCE desde Yahoo Finance.
 
