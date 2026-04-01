@@ -45,7 +45,7 @@ Todos los módulos se comunican mediante el bus **I2C**, que solo requiere 4 cab
 
 > Si usas el hub I2C, conecta **un único par SDA/SCL** desde el ESP32 al hub y desde ahí reparte al resto de módulos. VCC y GND se pueden llevar en paralelo directamente desde el ESP32.
 
-> Los pines GPIO4 (SDA) y GPIO5 (SCL) están definidos en `esphome/vwce.yaml` y `esphome/vwce_dummy.yaml`. Si cambias los pines físicos, actualízalos también en el YAML.
+> Los pines GPIO4 (SDA) y GPIO5 (SCL) están definidos en `esphome/vwce.yaml`, `esphome/vwce_dummy.yaml` y `esphome/sensors_lab.yaml`. Si cambias los pines físicos, actualízalos también en el YAML correspondiente.
 
 ---
 
@@ -55,6 +55,8 @@ Todos los módulos se comunican mediante el bus **I2C**, que solo requiere 4 cab
 esphome/
   vwce.yaml             # ESP32 obtiene el precio de VWCE directamente de Yahoo Finance
   vwce_dummy.yaml       # ESP32 recibe el precio desde un sensor REST de Home Assistant
+  sensors_lab.yaml      # Laboratorio completo: SCD40 + AHT20 + BMP280 + OLED (todos los datos)
+  sensors_best.yaml     # Estación óptima: un sensor por magnitud, pantalla de una sola página
   secrets.yaml.example  # Plantilla de credenciales (no subas tus claves reales)
 homeassistant/
   configuration.yaml    # Configuración principal mínima de Home Assistant
@@ -67,11 +69,15 @@ images/
 
 ### ¿Cuál YAML usar?
 
-| | `vwce.yaml` | `vwce_dummy.yaml` |
-|---|---|---|
-| **Quién obtiene el precio** | El propio ESP32 (petición HTTP a Yahoo) | Home Assistant (sensor REST) |
-| **Requiere Home Assistant activo** | No (funciona autónomo) | Sí |
-| **Ideal cuando...** | Quieres un dispositivo independiente | Ya tienes HA y quieres compartir el dato con varios ESP32 |
+| | `vwce.yaml` | `vwce_dummy.yaml` | `sensors_lab.yaml` | `sensors_best.yaml` |
+|---|---|---|---|---|
+| **Función principal** | Precio VWCE vía Yahoo Finance | Precio VWCE desde Home Assistant | Datos ambientales (todos los sensores) | Calidad del aire (sensor óptimo por magnitud) |
+| **Quién obtiene el dato** | El propio ESP32 (HTTP) | Home Assistant (sensor REST) | Los sensores físicos conectados | Los sensores físicos conectados |
+| **Requiere Home Assistant activo** | No (autónomo) | Sí | No (también funciona solo) | No (también funciona solo) |
+| **Sensores hardware** | Solo OLED | Solo OLED | SCD40 + AHT20 + BMP280 + OLED | SCD40 + AHT20 + BMP280 + OLED |
+| **Entidades en HA** | 1 (precio) | 1 (precio) | 7 (todas) | 4 (una por magnitud) |
+| **Pantalla OLED** | 1 página (precio) | 1 página (precio) | 2 páginas rotatorias | 1 página (todo junto) |
+| **Ideal cuando...** | Quieres un ticker independiente | Ya tienes HA con el dato | Quieres explorar todos los datos | Quieres el dato correcto de cada sensor |
 
 Cada archivo contiene comentarios explicativos sobre su propósito y uso.
 
@@ -167,6 +173,26 @@ esphome run esphome/vwce.yaml --device vwce-ticker.local
 Reemplaza `vwce-ticker.local` por el nombre mDNS o la IP de tu ESP32 (por ejemplo `192.168.1.106`).
 
 > La primera vez siempre debe ser por USB. A partir de ahí OTA permite actualizar sin tocar el cable.
+
+**Para `sensors_lab.yaml`:**
+
+```sh
+# Primera vez por USB
+esphome run esphome/sensors_lab.yaml --device COMx
+
+# Siguientes veces por OTA (el nombre mDNS es el campo `name` del YAML)
+esphome run esphome/sensors_lab.yaml --device sensors-lab.local
+```
+
+**Para `sensors_best.yaml`:**
+
+```sh
+# Primera vez por USB
+esphome run esphome/sensors_best.yaml --device COMx
+
+# Siguientes veces por OTA
+esphome run esphome/sensors_best.yaml --device sensors-best.local
+```
 
 ---
 
@@ -322,6 +348,178 @@ Ambos YAML incluyen el bloque siguiente **comentado**:
 Si lo descomentas y flasheas, aparece un botón en Home Assistant para encender y apagar el LED manualmente. Es útil para verificar que el pin funciona y entender cómo ESPHome expone controles a HA — pero para uso normal no hace falta tenerlo activo.
 
 > **Nota:** el ESP32-C3 *Mini* (distinto al *Super Mini*) sí tiene un LED RGB (WS2812) también en GPIO8 pero con lógica diferente. Para ese board habría que usar `esp32_rmt_led_strip` en lugar de `status_led`.
+
+---
+
+## Variante: laboratorio de sensores (`sensors_lab.yaml`)
+
+Esta variante prescinde del precio de VWCE y convierte el ESP32 en una **estación de calidad del aire** con tres sensores físicos y una pantalla OLED con dos páginas rotatorias.
+
+### Sensores conectados
+
+| Sensor | Plataforma ESPHome | Dirección I2C | Datos expuestos |
+|---|---|---|---|
+| **SCD40 / SCD41** | `scd4x` | `0x62` (fija) | CO₂ (ppm), temperatura, humedad |
+| **AHT20** | `aht10` con `variant: AHT20` | `0x38` | Temperatura, humedad |
+| **BMP280** | `bmp280_i2c` | `0x77`\* | Temperatura, presión (hPa) |
+| **SSD1306** | `ssd1306_i2c` | `0x3C` | Pantalla 128×64 |
+
+> \* El módulo combo AHT20+BMP280 habitual en AliExpress lleva SDO conectado a VCC → dirección `0x77`. Si tienes un BMP280 suelto con SDO libre (a GND), la dirección será `0x76`. Usa `scan: true` en el bloque `i2c:` para confirmar qué dirección responde en tu bus.
+
+### Entidades en Home Assistant
+
+Todas se crean automáticamente al añadir el dispositivo en HA (sin YAML adicional en Home Assistant):
+
+| Entidad | Unidad | Fuente |
+|---|---|---|
+| `sensor.sensors_lab_co2` | ppm | SCD40 |
+| `sensor.sensors_lab_scd4x_temperatura` | °C | SCD40 |
+| `sensor.sensors_lab_scd4x_humedad` | % | SCD40 |
+| `sensor.sensors_lab_aht20_temperatura` | °C | AHT20 |
+| `sensor.sensors_lab_aht20_humedad` | % | AHT20 |
+| `sensor.sensors_lab_bmp280_temperatura` | °C | BMP280 |
+| `sensor.sensors_lab_bmp280_presion` | hPa | BMP280 |
+
+### Pantalla OLED: dos páginas rotatorias
+
+La pantalla alterna cada **6 segundos** entre dos páginas. Los sensores se leen cada **30 segundos**; la pantalla se redibuja cada segundo con el último valor disponible.
+
+**Página 1 — CO₂:**
+- Cabecera: `CO2` / `SCD40` + barras de señal WiFi
+- Valor de CO₂ en número grande centrado (font 24 px)
+- Unidad `ppm` debajo
+- Temperatura y humedad del SCD40 en el pie (font 9 px)
+
+**Página 2 — Clima:**
+- Cabecera: `CLIMA` / `AHT+BMP` + barras de señal WiFi
+- Temperatura AHT20
+- Humedad AHT20
+- Presión BMP280
+
+### Niveles de CO₂ y calidad del aire
+
+El SCD40 mide el CO₂ real por absorción infrarroja no dispersiva (NDIR) — no es una estimación como los sensores VOC baratos.
+
+| ppm | Estado |
+|---|---|
+| < 400 | Aire exterior limpio |
+| 400–700 | Excelente |
+| 700–1000 | Aceptable |
+| 1000–1500 | Malo — somnolencia, dificultad de concentración |
+| 1500–2000 | Muy malo — dolores de cabeza, cansancio |
+| > 2000 | Peligroso |
+
+> Un espacio interior con personas y ventanas cerradas sube fácilmente a 1000–1400 ppm. Abrir una ventana 10 minutos baja el nivel rápidamente.
+
+### Auto-calibración del SCD40
+
+El SCD40 incluye **ASC** (*Automatic Self-Calibration*): asume que el valor mínimo registrado en los últimos **7 días** corresponde a aire fresco (~400 ppm) y se recalibra en consecuencia. Está activo por defecto (`Automatic self calibration: ON` en el log de arranque).
+
+Si el sensor nunca se expone a aire exterior o en un local con ventilación deficiente, puede acabar descalibrándose hacia abajo. Para desactivarlo:
+
+```yaml
+- platform: scd4x
+  automatic_self_calibration: false
+```
+
+### Actualización de datos
+
+| Componente | Frecuencia |
+|---|---|
+| Lectura de sensores | cada 30 s |
+| Redibujado de pantalla | cada 1 s |
+| Rotación de página | cada 6 s |
+| SCD40 internamente | cada 5 s (modo periódico) |
+
+El SCD40 mide cada 5 segundos internamente, pero ESPHome solo recoge y publica ese valor cada 30 s. Si se quiere mayor frecuencia de actualización basta con cambiar `update_interval: 5s` en el bloque `scd4x`.
+
+### Nota sobre `scan: true`
+
+El bus I2C arranca con un escaneo que imprime en el log todas las direcciones que responden. Es muy útil para diagnosticar problemas de cableado o confirmar la dirección del BMP280:
+
+```
+[C][i2c.idf:119]: Found device at address 0x38   ← AHT20
+[C][i2c.idf:119]: Found device at address 0x3C   ← SSD1306
+[C][i2c.idf:119]: Found device at address 0x62   ← SCD40
+[C][i2c.idf:119]: Found device at address 0x77   ← BMP280
+```
+
+---
+
+## Comparativa de sensores y elección óptima
+
+El SCD40, el AHT20 y el BMP280 miden algunas magnitudes en común (temperatura y humedad). No todos tienen la misma precisión para cada dato.
+
+### Temperatura
+
+| Sensor | Precisión datasheet | Observación |
+|---|---|---|
+| **AHT20** | ±0.3 °C | **Mejor opción** — sin self-heating |
+| BMP280 | ±0.5 °C | Aceptable, pero AHT20 gana |
+| SCD40 | ±0.8 °C | Se descarta — sufre *self-heating* |
+
+El SCD40 incorpora una cámara de medición de CO₂ que genera calor. Aplica un offset de compensación interno (visible en el log como `Temperature offset: 4.00°C`), pero en un entorno cerrado sin airflow sigue leyendo **1.5–2 °C por encima** de la temperatura real. Es un problema conocido y documentado por Sensirion.
+
+### Humedad
+
+| Sensor | Precisión datasheet | Observación |
+|---|---|---|
+| **AHT20** | ±2 % RH | **Mejor opción** |
+| SCD40 | ±6 % RH | Error triple; además afectado por el self-heating de temperatura |
+
+### Presión y CO₂
+
+Sin competencia: el BMP280 es el único con barómetro y el SCD40 el único con sensor NDIR de CO₂.
+
+### Resumen
+
+| Magnitud | Sensor óptimo | Motivo |
+|---|---|---|
+| CO₂ | SCD40 | Único sensor NDIR del bus |
+| Temperatura | AHT20 | ±0.3°C, sin self-heating |
+| Humedad | AHT20 | ±2% RH |
+| Presión | BMP280 | Único barómetro del bus |
+
+Esta es exactamente la elección que implementa `sensors_best.yaml`.
+
+---
+
+## Variante óptima: estación de calidad del aire (`sensors_best.yaml`)
+
+Versión producción de `sensors_lab.yaml`: usa los mismos tres sensores físicos pero expone a Home Assistant **solo el dato más preciso para cada magnitud**. Las mediciones redundantes o menos fiables se marcan `internal: true` — siguen calculándose internamente (visibles en el log) pero no crean entidades en HA ni consumen espacio en su base de datos.
+
+### Entidades en Home Assistant (solo 4)
+
+| Entidad | Unidad | Sensor | Motivo |
+|---|---|---|---|
+| `sensor.sensors_best_co2` | ppm | SCD40 | Único con NDIR |
+| `sensor.sensors_best_temperatura` | °C | AHT20 | ±0.3°C, sin self-heating |
+| `sensor.sensors_best_humedad` | % | AHT20 | ±2% RH |
+| `sensor.sensors_best_presion` | hPa | BMP280 | Único barómetro |
+
+### Pantalla OLED: una sola página
+
+Todo cabe en 128×64 px sin necesidad de rotar páginas:
+
+```
+CO2                    SCD40  [wifi]
+────────────────────────────────────
+             1295
+T: 24.0 C
+H: 55.9 %
+P: 1028.6 hPa
+```
+
+Layout exacto (coordenada Y de cada elemento):
+
+| y | Contenido | Fuente |
+|---|---|---|
+| 0 | Cabecera + barras WiFi | font_tiny (9 px) |
+| 12 | Línea separadora | — |
+| 13 | Valor CO₂ centrado | font_big (24 px) |
+| 38 | Temperatura AHT20 | font_tiny (9 px) |
+| 47 | Humedad AHT20 | font_tiny (9 px) |
+| 55 | Presión BMP280 | font_tiny (9 px) |
 
 ---
 

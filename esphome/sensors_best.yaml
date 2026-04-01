@@ -1,0 +1,183 @@
+# ------------------------------------------------------------
+# ESPHome: sensors_best.yaml
+#
+# Estación de calidad del aire con el sensor óptimo para cada magnitud:
+#
+#   CO₂        → SCD40/SCD41  sensor NDIR de referencia, sin rival
+#   Temperatura → AHT20        ±0.3°C, sin self-heating
+#   Humedad     → AHT20        ±2% RH (frente al ±6% del SCD40)
+#   Presión     → BMP280       único sensor con barómetro en este bus
+#
+# Por qué se descarta SCD40 para temperatura y humedad:
+#   El chip SCD40 se auto-calienta durante su funcionamiento (self-heating).
+#   Aunque aplica un offset de compensación (visible en el log de arranque:
+#   "Temperature offset: 4.00°C"), en condiciones de poco airflow sigue
+#   leyendo ~1.5-2°C por encima de la temperatura real. Su humedad también
+#   sufre esta desviación y tiene el doble de error que el AHT20 (±6% vs ±2%).
+#   Las lecturas de T y H del SCD40 se mantienen como internal: son visibles
+#   en el log para diagnóstico pero no crean entidades en Home Assistant.
+#
+# Por qué se descarta BMP280 para temperatura:
+#   El AHT20 (±0.3°C) es más preciso que el BMP280 (±0.5°C).
+#   La temperatura del BMP280 se marca internal; se usa la del AHT20.
+#
+# Pantalla OLED: una sola página con los 4 valores óptimos.
+#   Verificado en hardware: caben perfectamente en 128×64 px.
+#   CO₂ en número grande centrado + T, H y P en tres líneas al pie.
+#
+# Entidades expuestas a Home Assistant (solo las 4 óptimas):
+#   sensor.sensors_best_co2          ppm    SCD40
+#   sensor.sensors_best_temperatura  °C     AHT20
+#   sensor.sensors_best_humedad      %      AHT20
+#   sensor.sensors_best_presion      hPa    BMP280
+# ------------------------------------------------------------
+
+esphome:
+  name: sensors-best
+  comment: "ESP32-C3: sensores óptimos — SCD40 CO₂, AHT20 T+H, BMP280 P"
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+# --- OTA para actualizar firmware por WiFi ---
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+logger:
+  level: DEBUG
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+
+i2c:
+  sda: GPIO4
+  scl: GPIO5
+  scan: true
+  frequency: 100kHz   # El SCD40/SCD41 tiene un máximo de 100kHz según datasheet
+
+# --- Fuentes ---
+font:
+  - file: "gfonts://Roboto"
+    id: font_tiny
+    size: 9
+  - file: "gfonts://Roboto"
+    id: font_big
+    size: 24
+
+# ── Sensores ──────────────────────────────────────────────────────────────────
+sensor:
+
+  # SCD40 / SCD41 — solo CO₂ se expone; T y H son internal (self-heating)
+  - platform: scd4x
+    address: 0x62
+    update_interval: 30s
+    co2:
+      name: "CO2"
+      id: co2_ppm
+    temperature:
+      name: "SCD4x Temperatura"
+      id: scd4x_temp
+      internal: true   # self-heating: ~1.5-2°C alto → usar AHT20 para temperatura
+    humidity:
+      name: "SCD4x Humedad"
+      id: scd4x_hum
+      internal: true   # ±6% RH → usar AHT20 para humedad
+
+  # AHT20 — referencia de temperatura (±0.3°C) y humedad (±2% RH)
+  - platform: aht10
+    variant: AHT20
+    address: 0x38
+    update_interval: 30s
+    temperature:
+      name: "Temperatura"
+      id: aht20_temp
+    humidity:
+      name: "Humedad"
+      id: aht20_hum
+
+  # BMP280 — solo presión se expone; temperatura es internal (AHT20 es más preciso)
+  # Dirección: 0x77 si SDO → VCC (habitual en módulos AHT20+BMP280 combinados)
+  - platform: bmp280_i2c
+    address: 0x77
+    update_interval: 30s
+    temperature:
+      name: "BMP280 Temperatura"
+      id: bmp280_temp
+      internal: true   # ±0.5°C → usar AHT20 (±0.3°C) para temperatura
+    pressure:
+      name: "Presion"
+      id: bmp280_press
+
+  # Señal WiFi — solo interno, para el icono en pantalla
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 30s
+    internal: true
+
+# ── Pantalla SSD1306 128x64 — una sola página con los 4 valores óptimos ──────
+#
+# Layout (píxeles verticales 0-63):
+#   y= 0: cabecera "CO2" / "SCD40" + barras WiFi   (font_tiny  9px)
+#   y=12: línea separadora
+#   y=13: valor CO₂ centrado                        (font_big  24px → acaba y=37)
+#   y=38: temperatura AHT20                         (font_tiny  9px → acaba y=46)
+#   y=47: humedad AHT20                             (font_tiny  9px → acaba y=55)
+#   y=55: presión BMP280                            (font_tiny  9px → acaba y=63)
+#
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    id: my_display
+    update_interval: 1s
+    lambda: |-
+      // ── Cabecera ─────────────────────────────────────────────────────────
+      it.printf(0,   0, id(font_tiny), TextAlign::TOP_LEFT,  "CO2");
+      it.printf(127, 0, id(font_tiny), TextAlign::TOP_RIGHT, "SCD40");
+
+      // Barras de señal WiFi centradas en la cabecera
+      // RSSI: >= -50 excelente, -60 bien, -70 regular, -80 débil
+      int rssi = (int)id(wifi_rssi).state;
+      int bars = 0;
+      if      (rssi >= -50) bars = 4;
+      else if (rssi >= -60) bars = 3;
+      else if (rssi >= -70) bars = 2;
+      else if (rssi >= -80) bars = 1;
+      int bw = 3, gap = 2;
+      int sx = 64 - (4*bw + 3*gap) / 2;
+      int bh[] = {3, 5, 8, 11};
+      for (int i = 0; i < 4; i++) {
+        int bx = sx + i*(bw+gap);
+        int by = 11 - bh[i];
+        if (i < bars) it.filled_rectangle(bx, by, bw, bh[i]);
+        else          it.rectangle(bx, by, bw, bh[i]);
+      }
+      it.line(0, 12, 127, 12);
+
+      // ── CO₂ grande centrado ───────────────────────────────────────────────
+      float co2 = id(co2_ppm).state;
+      if (isnan(co2)) it.printf(64, 13, id(font_big), TextAlign::TOP_CENTER, "---");
+      else            it.printf(64, 13, id(font_big), TextAlign::TOP_CENTER, "%.0f", co2);
+
+      // ── Temperatura, humedad y presión en el pie (valores óptimos) ────────
+      float t = id(aht20_temp).state;
+      float h = id(aht20_hum).state;
+      float p = id(bmp280_press).state;
+
+      if (isnan(t)) it.printf(0, 38, id(font_tiny), "T: --- C");
+      else          it.printf(0, 38, id(font_tiny), "T: %.1f C", t);
+
+      if (isnan(h)) it.printf(0, 47, id(font_tiny), "H: -- %%");
+      else          it.printf(0, 47, id(font_tiny), "H: %.1f %%", h);
+
+      if (isnan(p)) it.printf(0, 55, id(font_tiny), "P: ---- hPa");
+      else          it.printf(0, 55, id(font_tiny), "P: %.1f hPa", p);

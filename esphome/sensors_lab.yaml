@@ -1,0 +1,215 @@
+# ------------------------------------------------------------
+# ESPHome: sensors_lab.yaml
+#
+# Banco de pruebas de sensores para ESP32-C3:
+#   - SCD40/SCD41 : CO2 + temperatura + humedad          (I2C 0x62)
+#   - AHT20        : temperatura + humedad alta precisión (I2C 0x38)
+#   - BMP280       : temperatura + presión barométrica    (I2C 0x77)
+#   - SSD1306      : OLED 128x64, dos páginas rotatorias
+#   - Todos los sensores se publican automáticamente en Home Assistant
+# ------------------------------------------------------------
+
+esphome:
+  name: sensors-lab
+  comment: "ESP32-C3: SCD40 + AHT20 + BMP280 + OLED SSD1306"
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+# --- OTA para actualizar firmware por WiFi ---
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+logger:
+  level: DEBUG
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+  # Opciones útiles si tienes problemas de conexión WiFi:
+  # output_power: 8.5dB
+  # fast_connect: false
+  # reboot_timeout: 15min
+
+i2c:
+  sda: GPIO4
+  scl: GPIO5
+  scan: true
+  frequency: 100kHz   # El SCD40/SCD41 tiene un máximo de 100kHz según datasheet
+
+# --- Fuentes ---
+font:
+  - file: "gfonts://Roboto"
+    id: font_tiny
+    size: 9
+  - file: "gfonts://Roboto"
+    id: font_medium
+    size: 14
+  - file: "gfonts://Roboto"
+    id: font_big
+    size: 24
+
+# ── Sensores ──────────────────────────────────────────────────────────────────
+sensor:
+
+  # SCD40 / SCD41 — CO2 + temperatura + humedad (dirección fija 0x62)
+  # CALIDAD: CO₂ es su valor único — sensor NDIR de referencia, sin rival en este bus.
+  #          Temperatura y humedad son menos fiables: el chip sufre self-heating y
+  #          lee ~1.5-2°C por encima de la temperatura real; humedad ±6% RH.
+  #          → Para temperatura y humedad de referencia usar el AHT20.
+  - platform: scd4x
+    address: 0x62
+    update_interval: 30s
+    co2:
+      name: "CO2"
+      id: co2_ppm
+    temperature:
+      name: "SCD4x Temperatura"
+      id: scd4x_temp
+    humidity:
+      name: "SCD4x Humedad"
+      id: scd4x_hum
+
+  # AHT20 — temperatura + humedad de alta precisión
+  # CALIDAD: referencia para temperatura (±0.3°C) y humedad (±2% RH).
+  #          Sin self-heating; datos más fiables que el SCD40 para estas magnitudes.
+  - platform: aht10
+    variant: AHT20
+    address: 0x38
+    update_interval: 30s
+    temperature:
+      name: "AHT20 Temperatura"
+      id: aht20_temp
+    humidity:
+      name: "AHT20 Humedad"
+      id: aht20_hum
+
+  # BMP280 — temperatura + presión barométrica
+  # CALIDAD: presión es su valor único (sin competencia en este bus).
+  #          Temperatura (±0.5°C) es secundaria frente al AHT20 (±0.3°C).
+  #          En sensors_best.yaml su temperatura se marca internal; se usa la del AHT20.
+  # Dirección: 0x77 si SDO → VCC (habitual en módulos AHT20+BMP280 combinados), 0x76 si SDO → GND
+  - platform: bmp280_i2c
+    address: 0x77
+    update_interval: 30s
+    temperature:
+      name: "BMP280 Temperatura"
+      id: bmp280_temp
+    pressure:
+      name: "BMP280 Presion"
+      id: bmp280_press
+
+  # Señal WiFi — solo interno, para el icono en pantalla
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 30s
+    internal: true
+
+# ── Pantalla SSD1306 128x64 — dos páginas rotatorias ─────────────────────────
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    id: my_display
+    update_interval: 1s
+    pages:
+
+      # ── Página 1: CO2 grande + temp y humedad del SCD4x ──────────────────
+      - id: page_co2
+        lambda: |-
+          // ── Cabecera ─────────────────────────────────────────────────────
+          it.printf(0,   0, id(font_tiny), TextAlign::TOP_LEFT,  "CO2");
+          it.printf(127, 0, id(font_tiny), TextAlign::TOP_RIGHT, "SCD40");
+
+          // Barras de señal WiFi centradas en la cabecera
+          int rssi = (int)id(wifi_rssi).state;
+          int bars = 0;
+          if      (rssi >= -50) bars = 4;
+          else if (rssi >= -60) bars = 3;
+          else if (rssi >= -70) bars = 2;
+          else if (rssi >= -80) bars = 1;
+          int bw = 3, gap = 2;
+          int sx = 64 - (4*bw + 3*gap) / 2;
+          int bh[] = {3, 5, 8, 11};
+          for (int i = 0; i < 4; i++) {
+            int bx = sx + i*(bw+gap);
+            int by = 11 - bh[i];
+            if (i < bars) it.filled_rectangle(bx, by, bw, bh[i]);
+            else          it.rectangle(bx, by, bw, bh[i]);
+          }
+          it.line(0, 12, 127, 12);
+
+          // ── Valor CO2 grande centrado ─────────────────────────────────────
+          float co2 = id(co2_ppm).state;
+          if (isnan(co2)) {
+            it.printf(64, 14, id(font_big), TextAlign::TOP_CENTER, "---");
+          } else {
+            it.printf(64, 14, id(font_big), TextAlign::TOP_CENTER, "%.0f", co2);
+          }
+          it.printf(64, 40, id(font_tiny), TextAlign::TOP_CENTER, "ppm");
+
+          // ── Temperatura y humedad del SCD4x en el pie ────────────────────
+          float t = id(scd4x_temp).state;
+          float h = id(scd4x_hum).state;
+          if (!isnan(t) && !isnan(h)) {
+            it.printf(0, 53, id(font_tiny), "T: %.1f C    H: %.0f%%", t, h);
+          } else {
+            it.printf(0, 53, id(font_tiny), "T: ---       H: --%%");
+          }
+
+      # ── Página 2: Temperatura, humedad y presión (AHT20 + BMP280) ────────
+      - id: page_climate
+        lambda: |-
+          // ── Cabecera ─────────────────────────────────────────────────────
+          it.printf(0,   0, id(font_tiny), TextAlign::TOP_LEFT,  "CLIMA");
+          it.printf(127, 0, id(font_tiny), TextAlign::TOP_RIGHT, "AHT+BMP");
+
+          // Barras de señal WiFi centradas en la cabecera
+          int rssi = (int)id(wifi_rssi).state;
+          int bars = 0;
+          if      (rssi >= -50) bars = 4;
+          else if (rssi >= -60) bars = 3;
+          else if (rssi >= -70) bars = 2;
+          else if (rssi >= -80) bars = 1;
+          int bw = 3, gap = 2;
+          int sx = 64 - (4*bw + 3*gap) / 2;
+          int bh[] = {3, 5, 8, 11};
+          for (int i = 0; i < 4; i++) {
+            int bx = sx + i*(bw+gap);
+            int by = 11 - bh[i];
+            if (i < bars) it.filled_rectangle(bx, by, bw, bh[i]);
+            else          it.rectangle(bx, by, bw, bh[i]);
+          }
+          it.line(0, 12, 127, 12);
+
+          // ── Datos ─────────────────────────────────────────────────────────
+          float t = id(aht20_temp).state;
+          float h = id(aht20_hum).state;
+          float p = id(bmp280_press).state;
+
+          // Temperatura AHT20
+          if (isnan(t)) it.printf(0, 13, id(font_medium), "T: --- C");
+          else          it.printf(0, 13, id(font_medium), "T: %.1f C", t);
+
+          // Humedad AHT20
+          if (isnan(h)) it.printf(0, 29, id(font_medium), "H: --- %%");
+          else          it.printf(0, 29, id(font_medium), "H: %.1f %%", h);
+
+          // Presión BMP280
+          if (isnan(p)) it.printf(0, 45, id(font_medium), "P: ---- hPa");
+          else          it.printf(0, 45, id(font_medium), "P: %.1f hPa", p);
+
+# ── Rotación de páginas cada 6 s ─────────────────────────────────────────────
+interval:
+  - interval: 6s
+    then:
+      - display.page.show_next: my_display
+      - component.update: my_display
