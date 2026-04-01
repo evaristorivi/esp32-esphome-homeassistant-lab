@@ -31,10 +31,11 @@ logger:
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  output_power: 8.5dB
-  fast_connect: false
   power_save_mode: none
-  reboot_timeout: 15min
+  # Opciones útiles si tienes problemas de conexión WiFi:
+  # output_power: 8.5dB    # Reduce potencia si el ESP32 está muy cerca del router
+  # fast_connect: false    # Si true, salta el escaneo de canales (más rápido pero menos fiable)
+  # reboot_timeout: 15min  # Reiniciar si no conecta en X tiempo (default: 15min)
 
 i2c:
   sda: GPIO4
@@ -50,12 +51,16 @@ font:
     id: font_price
     size: 32
 
-# Sensor que recibe el último precio desde Home Assistant
+# Sensores
 sensor:
   - platform: homeassistant
     id: vwce_price
     entity_id: sensor.vwce_precio_yahoo
-    internal: true   # No aparece en la UI de ESPHome
+    internal: true
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 30s
+    internal: true
 
 display:
   - platform: ssd1306_i2c
@@ -69,6 +74,26 @@ display:
       // Cabecera
       it.printf(0, 0, id(font_small), TextAlign::TOP_LEFT, "VWCE");
       it.printf(127, 0, id(font_small), TextAlign::TOP_RIGHT, "XETRA");
+
+      // Barras de señal WiFi centradas en la cabecera
+      // RSSI: >= -50 excelente, -60 bien, -70 regular, -80 débil
+      int rssi = (int)id(wifi_rssi).state;
+      int bars = 0;
+      if (rssi >= -50) bars = 4;
+      else if (rssi >= -60) bars = 3;
+      else if (rssi >= -70) bars = 2;
+      else if (rssi >= -80) bars = 1;
+      int bw = 3, gap = 2;
+      int sx = 64 - (4*bw + 3*gap) / 2;
+      int bh[] = {3, 5, 8, 11};
+      for (int i = 0; i < 4; i++) {
+        int bx = sx + i*(bw+gap);
+        int by = 12 - bh[i];
+        if (i < bars)
+          it.filled_rectangle(bx, by, bw, bh[i]);
+        else
+          it.rectangle(bx, by, bw, bh[i]);
+      }
 
       // Precio grande centrado
       if (isnan(price)) {
