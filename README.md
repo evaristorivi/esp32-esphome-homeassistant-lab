@@ -79,6 +79,18 @@ Cada archivo contiene comentarios explicativos sobre su propósito y uso.
 
 ## Requisitos
 
+### Drivers USB-Serie (primera vez por USB)
+
+Para que el ordenador reconozca el ESP32 al conectarlo por USB necesitas el driver del chip USB-serie que lleva la placa. El ESP32-C3 Super Mini puede venir con chips distintos según el fabricante:
+
+| Chip | Driver | Plataformas |
+|------|--------|-------------|
+| **CP2102** | [Silicon Labs VCP Drivers](https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers?tab=overview) | Windows, Mac |
+| **CH340 / CH341** | [WCH CH341SER](https://www.wch.cn/downloads/CH341SER_ZIP.html) | Windows, Mac |
+| **CH342 / CH343 / CH9102** | [WCH CH343SER](https://www.wch.cn/downloads/CH343SER_ZIP.html) | Windows, Mac |
+
+> Si al conectar el ESP32 no aparece ningún puerto COM (Windows) o `/dev/tty.usbserial-*` (Mac/Linux), instala ambos drivers — no hay forma rápida de saber qué chip lleva la placa sin abrirla o probarlo.
+
 ### ESPHome
 
 - **Python 3.8+** y **pip** instalados en tu sistema.
