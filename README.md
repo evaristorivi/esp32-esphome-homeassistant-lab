@@ -9,16 +9,41 @@
 
 A continuación se muestra una lista de módulos y componentes compatibles, con enlaces de ejemplo para su compra:
 
-- [Mini Micro USB tipo C USB 5V 1A 18650 TP4056 módulo de cargador de batería de litio con protección](https://es.aliexpress.com/item/1005009887303870.html)
+
 - [Pantalla OLED 0,96" I2C 128x64 SSD1306](https://es.aliexpress.com/item/1005006365881525.html)
 - [Placa de pruebas PCB sin soldadura, 400 puntos](https://es.aliexpress.com/item/1005010426826947.html)
 - [Placa de desarrollo ESP32-C3 Super Mini, 16 pines tipo C](https://es.aliexpress.com/item/1005009014269977.html)
 - [Sensor de Gas TENSTAR SCD40/SCD41 CO₂, temperatura y humedad I2C](https://es.aliexpress.com/item/1005009897956849.html)
 - [AHT20 + BMP280 Módulo de temperatura, humedad y presión del aire](https://es.aliexpress.com/item/1005005321276932.html)
 - [Módulo de expansión de interfaz IIC Hub I2C](https://es.aliexpress.com/item/1005002811407142.html)
+- [Mini Micro USB tipo C USB 5V 1A 18650 TP4056 módulo de cargador de batería de litio con protección](https://es.aliexpress.com/item/1005009887303870.html)
+
+> **Nota sobre la batería:** Este módulo aparece en la lista porque inicialmente se planteó alimentar el proyecto con una batería LiPo de 3,7V de las usadas en drones. Funciona, pero no es la solución óptima: una LiPo recién cargada entrega ~4,2V (aceptable), pero conforme se descarga el voltaje va bajando progresivamente. Al alimentar el ESP32 directamente por el pin de 3,3V, a partir de cierto nivel de carga la tensión es insuficiente para un funcionamiento fiable. La solución correcta sería interponer un regulador de voltaje (como un boost converter que mantenga una salida estable de 3,3V independientemente del nivel de la batería), pero finalmente se decidió simplificar y construir el proyecto **sin batería**, alimentado directamente por USB. La lista se mantiene por si alguien quiere explorar esa vía.
 
 > Puedes usar módulos equivalentes compatibles con ESP32 y ESPHome.
 
+---
+
+## Esquema de conexión
+
+Todos los módulos (pantalla OLED, sensores CO₂, temperatura/humedad/presión y hub I2C) se comunican mediante el bus **I2C**, que solo requiere 4 cables por módulo:
+
+<p align="center">
+  <img src="images/esquema.webp" alt="Pinout ESP32-C3 Super Mini" style="width:80%;">
+</p>
+
+| Módulo | Pin módulo | Pin ESP32-C3 Super Mini |
+|--------|-----------|------------------------|
+| Pantalla OLED / Sensores I2C | **VCC** | **3V3** |
+| Pantalla OLED / Sensores I2C | **GND** | **GND** |
+| Pantalla OLED / Sensores I2C | **SDA** | **GPIO4** |
+| Pantalla OLED / Sensores I2C | **SCL** | **GPIO5** |
+
+> Si usas el hub I2C, conecta **un solo cable SDA y SCL** del ESP32 al hub, y desde el hub reparte las conexiones al resto de módulos. VCC y GND se pueden llevar en paralelo directamente desde el ESP32.
+
+> Los pines GPIO4 (SDA) y GPIO5 (SCL) están definidos en los archivos `esphome/vwce.yaml` y `esphome/vwce_dummy.yaml`. Si cambias los pines físicos, recuerda actualizarlos también en el YAML.
+
+---
 
 Ejemplos de integración de sensores ambientales (temperatura, humedad, presión, CO₂, etc.) y financieros (precio de ETF VWCE XETRA) con ESPHome y Home Assistant usando ESP32.
 
