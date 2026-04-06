@@ -15,6 +15,8 @@ El repositorio contiene cuatro proyectos independientes, cada uno listo para fla
 | `sensors_lab.yaml` | Estación de calidad del aire — CO₂, T, H y P en dos páginas rotatorias |
 | `sensors_best.yaml` | Igual que el anterior pero expone a HA solo el dato más preciso de cada magnitud — pantalla en una página |
 | `sensors_best_pages.yaml` | Versión final: mismos 4 datos óptimos, pero 4 páginas a pantalla completa rotatorias |
+| `sensors_best_pages_vwce.yaml` | Estación óptima + precio VWCE — 5 páginas, consulta Yahoo Finance directamente |
+| `sensors_best_pages_vwce_dummy.yaml` | Estación óptima + precio VWCE — 5 páginas, recibe precio desde Home Assistant |
 
 ---
 
@@ -454,6 +456,8 @@ esphome/
   sensors_lab.yaml      # Proyecto 3: estación laboratorio
   sensors_best.yaml           # estación óptima — pantalla 1 página
   sensors_best_pages.yaml     # Proyecto 4: estación óptima — 4 páginas
+  sensors_best_pages_vwce.yaml       # Proyecto 5: estación + VWCE (HTTP directo)
+  sensors_best_pages_vwce_dummy.yaml # Proyecto 6: estación + VWCE (via HA)
   secrets.yaml.example  # Plantilla de credenciales (no subas secrets.yaml)
 homeassistant/
   configuration.yaml    # Configuración mínima de Home Assistant

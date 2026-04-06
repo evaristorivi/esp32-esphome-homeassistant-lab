@@ -1,0 +1,312 @@
+# ------------------------------------------------------------
+# ESPHome: sensors_best_pages_vwce.yaml
+#
+# Basado en sensors_best_pages.yaml + lógica HTTP de vwce.yaml.
+# 5 páginas rotativas: CO₂, Temperatura, Humedad, Presión y VWCE.
+# El ESP32 consulta Yahoo Finance directamente — no necesita Home Assistant.
+#
+# Páginas:
+#   1 · CO₂          ppm    SCD40
+#   2 · Temperatura  °C     AHT20
+#   3 · Humedad      %      AHT20
+#   4 · Presión      hPa    BMP280
+#   5 · VWCE         EUR    Yahoo Finance (HTTP directo)
+# ------------------------------------------------------------
+
+esphome:
+  name: sensors-best-pages-vwce
+  comment: "ESP32-C3: OLED 5 páginas — CO2, T, H, P + VWCE (HTTP directo)"
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+logger:
+  level: DEBUG
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+
+i2c:
+  sda: GPIO4
+  scl: GPIO5
+  scan: true
+  frequency: 100kHz
+
+http_request:
+  useragent: "Mozilla/5.0"
+  timeout: 10s
+
+# ── Fuentes ───────────────────────────────────────────────────────────────────
+font:
+  - file: "gfonts://Roboto"
+    id: font_tiny
+    size: 9       # unidad, calidad CO₂, texto de pie
+  - file: "gfonts://Roboto"
+    id: font_label
+    size: 11      # etiqueta en cabecera invertida
+  - file: "gfonts://Roboto"
+    id: font_huge
+    size: 40      # valor principal — máximo que encaja en el área central
+
+# ── Sensores ──────────────────────────────────────────────────────────────────
+sensor:
+
+  # SCD40/SCD41 — solo CO₂ se expone (T y H tienen self-heating)
+  - platform: scd4x
+    address: 0x62
+    update_interval: 30s
+    co2:
+      name: "CO2"
+      id: co2_ppm
+    temperature:
+      name: "SCD4x Temperatura"
+      id: scd4x_temp
+      internal: true
+    humidity:
+      name: "SCD4x Humedad"
+      id: scd4x_hum
+      internal: true
+
+  # AHT20 — temperatura (±0.3°C) y humedad (±2% RH)
+  - platform: aht10
+    variant: AHT20
+    address: 0x38
+    update_interval: 30s
+    temperature:
+      name: "Temperatura"
+      id: aht20_temp
+    humidity:
+      name: "Humedad"
+      id: aht20_hum
+
+  # BMP280 — solo presión (temperatura internal, AHT20 es más preciso)
+  - platform: bmp280_i2c
+    address: 0x77
+    update_interval: 30s
+    temperature:
+      name: "BMP280 Temperatura"
+      id: bmp280_temp
+      internal: true
+    pressure:
+      name: "Presion"
+      id: bmp280_press
+
+  # VWCE — precio obtenido por HTTP desde Yahoo Finance
+  - platform: template
+    name: "VWCE Precio"
+    id: vwce_price
+    unit_of_measurement: "EUR"
+    update_interval: never
+
+  # WiFi RSSI — solo interno, para las barras en pantalla
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 30s
+    internal: true
+
+# ── Rotación de páginas (6s) + consulta Yahoo Finance (60s) ───────────────────
+interval:
+  - interval: 6s
+    then:
+      - display.page.show_next: my_display
+      - component.update: my_display
+
+  - interval: 60s
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          else:
+            - logger.log: "Sin WiFi, saltando petición HTTP"
+          then:
+            - http_request.get:
+                url: "https://query1.finance.yahoo.com/v8/finance/chart/VWCE.DE?interval=1d&range=1d"
+                capture_response: true
+                request_headers:
+                  User-Agent: "Mozilla/5.0"
+                on_response:
+                  then:
+                    - lambda: |-
+                        ESP_LOGI("vwce", "HTTP body: %d chars", (int)body.size());
+                        std::string target = "\"regularMarketPrice\":";
+                        size_t pos = body.find(target);
+                        if (pos == std::string::npos) {
+                          ESP_LOGW("vwce", "regularMarketPrice no encontrado en la respuesta");
+                          ESP_LOGD("vwce", "Inicio body: %.200s", body.c_str());
+                          return;
+                        }
+                        pos += target.length();
+                        while (pos < body.size() && (body[pos] == ' ' || body[pos] == '\t')) pos++;
+                        std::string num;
+                        while (pos < body.size() && (isdigit((unsigned char)body[pos]) || body[pos] == '.' || body[pos] == '-')) {
+                          num += body[pos++];
+                        }
+                        if (num.empty()) { ESP_LOGW("vwce", "Precio vacío tras búsqueda"); return; }
+                        float price = atof(num.c_str());
+                        ESP_LOGI("vwce", "VWCE precio: %.2f EUR", price);
+                        id(vwce_price).publish_state(price);
+
+# ── Pantalla SSD1306 128×64 ───────────────────────────────────────────────────
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    id: my_display
+    update_interval: 1s
+    pages:
+
+      # ── Página 1: CO₂ ────────────────────────────────────────────────────
+      - id: page_co2
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "CO2");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          for (int i = 0; i < 4; i++) {
+            int bx = 110 + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float co2 = id(co2_ppm).state;
+          if (isnan(co2)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else            it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.0f", co2);
+
+          const char* q;
+          if      (isnan(co2)) q = "---";
+          else if (co2 > 1500) q = "PELIGROSO";
+          else if (co2 > 1000) q = "MALO";
+          else if (co2 >  700) q = "ACEPTABLE";
+          else                 q = "BUENO";
+          it.printf(  0, 55, id(font_tiny), TextAlign::TOP_LEFT,  "%s", q);
+          it.printf(127, 55, id(font_tiny), TextAlign::TOP_RIGHT, "ppm");
+
+      # ── Página 2: Temperatura ────────────────────────────────────────────
+      - id: page_temp
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "TEMPERATURA");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          for (int i = 0; i < 4; i++) {
+            int bx = 110 + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float t = id(aht20_temp).state;
+          if (isnan(t)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else          it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.1f", t);
+
+          it.printf(64, 55, id(font_tiny), TextAlign::TOP_CENTER, "\xc2\xb0""C");
+
+      # ── Página 3: Humedad ────────────────────────────────────────────────
+      - id: page_hum
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "HUMEDAD");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          for (int i = 0; i < 4; i++) {
+            int bx = 110 + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float h = id(aht20_hum).state;
+          if (isnan(h)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else          it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.0f", h);
+
+          it.printf(64, 55, id(font_tiny), TextAlign::TOP_CENTER, "%%");
+
+      # ── Página 4: Presión ────────────────────────────────────────────────
+      - id: page_press
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "PRESION");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          for (int i = 0; i < 4; i++) {
+            int bx = 110 + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float p = id(bmp280_press).state;
+          if (isnan(p)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else          it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.0f", p);
+
+          it.printf(64, 55, id(font_tiny), TextAlign::TOP_CENTER, "hPa");
+
+      # ── Página 5: VWCE ──────────────────────────────────────────────────
+      - id: page_vwce
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "VWCE");
+          it.printf(124, 1, id(font_label), COLOR_OFF, TextAlign::TOP_RIGHT, "XETRA");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          int sx = 64 - (4*bw + 3*bgap) / 2;
+          for (int i = 0; i < 4; i++) {
+            int bx = sx + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float price = id(vwce_price).state;
+          if (isnan(price)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else              it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.2f", price);
+
+          it.printf(64, 55, id(font_tiny), TextAlign::TOP_CENTER, "EUR");
