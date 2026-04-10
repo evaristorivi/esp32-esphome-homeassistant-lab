@@ -1,0 +1,1305 @@
+# ============================================================================
+# ESPHome: cyd_weather_dummy.yaml
+#
+# ESP32-2432S028R (CYD) — SIN sensores I2C fisicos.
+# Toda la info meteorologica + sensores interiores via Home Assistant.
+# (Sin BMP280 / AHT20 / SCD40 — sin bus I2C)
+#
+# Paginas (navegacion MANUAL con botones < > — sin auto-rotacion):
+#   1 - PANEL — meteo exterior (icono+temp+viento+PM) + sensores interiores
+#       (CO2, T.INT, HUM, PRESION) en grid 3x2
+#   2 - PREVISION — 4 filas: +3h, +6h, D+1, D+2
+#   3 - VWCE — precio fondo indexado (sensor.vwce_precio_yahoo)
+#
+# Sensores interiores vienen de otro ESP32 publicado en HA:
+#   sensor.${co2_node}_co2
+#   sensor.${sensors_node}_temperatura / _humedad / _presion
+# ============================================================================
+
+substitutions:
+  location: !secret location_name
+  location_display: !secret location_display
+
+esphome:
+  name: cyd-weather-dummy
+  comment: "ESP32-2432S028R (CYD): Weather display LVGL — sin sensores I2C"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+logger:
+  level: DEBUG
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+
+# ── Fuentes — FontAwesome 5 Free Solid ────────────────────────────────────────
+font:
+  - file: 'https://github.com/FortAwesome/Font-Awesome/raw/5.15.4/webfonts/fa-solid-900.ttf'
+    id: fa_14
+    size: 14
+    glyphs: "\uF1EB\uF053\uF054\uF0C9\uF185"
+  - file: 'https://github.com/FortAwesome/Font-Awesome/raw/5.15.4/webfonts/fa-solid-900.ttf'
+    id: fa_18
+    size: 18
+    glyphs: "\uF0C9\uF185\uF186\uF0C2\uF75F\uF73B\uF0E7\uF6C4\uF73D\uF740\uF2DC\uF72E\uF071"
+  - file: 'https://github.com/FortAwesome/Font-Awesome/raw/5.15.4/webfonts/fa-solid-900.ttf'
+    id: fa_28
+    size: 28
+    glyphs: "\uF185\uF186\uF0C2\uF75F\uF73B\uF0E7\uF6C4\uF73D\uF740\uF2DC\uF72E\uF071"
+  - file: 'https://github.com/FortAwesome/Font-Awesome/raw/5.15.4/webfonts/fa-solid-900.ttf'
+    id: fa_48
+    size: 48
+    glyphs: "\uF185\uF186\uF0C2\uF75F\uF73B\uF0E7\uF6C4\uF73D\uF740\uF2DC\uF72E\uF071"
+
+# ── Tiempo real (NTP via HA) ──────────────────────────────────────────────────
+time:
+  - platform: homeassistant
+    id: ha_time
+    timezone: "Europe/Madrid"
+
+# (Sin bus I²C — todos los datos vienen de HA)
+
+# ── Buses SPI ─────────────────────────────────────────────────────────────────
+spi:
+  - id: spi_display
+    clk_pin: GPIO14
+    mosi_pin: GPIO13
+    miso_pin: GPIO12
+  - id: spi_touch
+    clk_pin: GPIO25
+    mosi_pin: GPIO32
+    miso_pin: GPIO39
+
+# ── Salidas PWM ───────────────────────────────────────────────────────────────
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO21
+  - platform: ledc
+    id: led_red
+    pin:
+      number: GPIO4
+      inverted: true
+  - platform: ledc
+    id: led_green
+    pin:
+      number: GPIO16
+      inverted: true
+  - platform: ledc
+    id: led_blue
+    pin:
+      number: GPIO17
+      inverted: true
+
+# ── Luces ─────────────────────────────────────────────────────────────────────
+light:
+  - platform: monochromatic
+    id: backlight
+    output: backlight_pwm
+    name: "CYD Backlight"
+    restore_mode: ALWAYS_ON
+
+  - platform: rgb
+    id: rgb_led
+    name: "CYD LED RGB"
+    red: led_red
+    green: led_green
+    blue: led_blue
+    restore_mode: ALWAYS_OFF
+
+# ── Globals ───────────────────────────────────────────────────────────────────
+globals:
+  - id: screen_dimmed
+    type: bool
+    initial_value: 'false'
+  - id: brightness_level
+    type: int
+    initial_value: '0'
+
+# ── Sensores via Home Assistant ───────────────────────────────────────────────
+sensor:
+
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 30s
+    internal: true
+
+  # ── Datos meteorológicos actuales ─────────────────────────────────────
+  - platform: homeassistant
+    id: wx_temp
+    entity_id: sensor.${location}_temperatura
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_wx_temp
+          text:
+            format: "%.1f"
+            args: ['x']
+
+  # ── Sensores interiores (desde otro ESP32 via HA) ──────────────────────
+  - platform: homeassistant
+    id: s_co2
+    entity_id: sensor.sensors_lab_co2
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_s_co2
+          text:
+            format: "%.0f ppm"
+            args: ['x']
+      - lambda: |-
+          lv_color_t col;
+          if (x > 1500) col = lv_color_hex(0xFF4444);
+          else if (x > 1000) col = lv_color_hex(0xFF9100);
+          else if (x > 700) col = lv_color_hex(0xFFD600);
+          else col = lv_color_hex(0x69FF47);
+          lv_obj_set_style_text_color(id(lbl_s_co2), col, 0);
+
+  - platform: homeassistant
+    id: s_int_temp
+    entity_id: sensor.sensors_best_temperatura
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_s_temp
+          text:
+            format: "%.1f\xB0C"
+            args: ['x']
+
+  - platform: homeassistant
+    id: s_int_hum
+    entity_id: sensor.sensors_best_humedad
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_s_hum
+          text:
+            format: "%.0f%%"
+            args: ['x']
+
+  - platform: homeassistant
+    id: s_int_press
+    entity_id: sensor.sensors_best_presion
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_s_press
+          text:
+            format: "%.0f hPa"
+            args: ['x']
+
+  - platform: homeassistant
+    id: wx_wind
+    entity_id: sensor.${location}_viento
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_wx_wind
+          text:
+            format: "%.1f m/s"
+            args: ['x']
+
+  - platform: homeassistant
+    id: wx_pm25
+    entity_id: sensor.${location}_pm25
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_pm25_value
+          text:
+            format: "%.1f"
+            args: ['x']
+
+  - platform: homeassistant
+    id: wx_pm10
+    entity_id: sensor.${location}_pm10
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_pm10_value
+          text:
+            format: "%.1f"
+            args: ['x']
+
+  # ── Previsión +3h ─────────────────────────────────────────────────────
+  - platform: homeassistant
+    id: fc_3h_temp
+    entity_id: sensor.${location}_forecast_3h_temp
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc0_temp
+          text:
+            format: "%.1f°"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_3h_hum
+    entity_id: sensor.${location}_forecast_3h_hum
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc0_hum
+          text:
+            format: "%.0f%%"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_3h_wind
+    entity_id: sensor.${location}_forecast_3h_wind
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc0_wind
+          text:
+            format: "%.1fm/s"
+            args: ['x']
+
+  # ── Previsión +6h ─────────────────────────────────────────────────────
+  - platform: homeassistant
+    id: fc_6h_temp
+    entity_id: sensor.${location}_forecast_6h_temp
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc1_temp
+          text:
+            format: "%.1f°"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_6h_hum
+    entity_id: sensor.${location}_forecast_6h_hum
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc1_hum
+          text:
+            format: "%.0f%%"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_6h_wind
+    entity_id: sensor.${location}_forecast_6h_wind
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc1_wind
+          text:
+            format: "%.1fm/s"
+            args: ['x']
+
+  # ── Previsión día +1 ──────────────────────────────────────────────────
+  - platform: homeassistant
+    id: fc_d1_temp_max
+    entity_id: sensor.${location}_forecast_d1_temp_max
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc2_temp
+          text:
+            format: "%.1f°"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_d1_temp_min
+    entity_id: sensor.${location}_forecast_d1_temp_min
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc2_tempmin
+          text:
+            format: "%.1f°"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_d1_hum
+    entity_id: sensor.${location}_forecast_d1_hum
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc2_hum
+          text:
+            format: "%.0f%%"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_d1_wind
+    entity_id: sensor.${location}_forecast_d1_wind
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc2_wind
+          text:
+            format: "%.1fm/s"
+            args: ['x']
+
+  # ── Previsión día +2 ──────────────────────────────────────────────────
+  - platform: homeassistant
+    id: fc_d2_temp_max
+    entity_id: sensor.${location}_forecast_d2_temp_max
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc3_temp
+          text:
+            format: "%.1f°"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_d2_temp_min
+    entity_id: sensor.${location}_forecast_d2_temp_min
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc3_tempmin
+          text:
+            format: "%.1f°"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_d2_hum
+    entity_id: sensor.${location}_forecast_d2_hum
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc3_hum
+          text:
+            format: "%.0f%%"
+            args: ['x']
+  - platform: homeassistant
+    id: fc_d2_wind
+    entity_id: sensor.${location}_forecast_d2_wind
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc3_wind
+          text:
+            format: "%.1fm/s"
+            args: ['x']
+
+  - platform: homeassistant
+    id: vwce_price
+    entity_id: sensor.vwce_precio_yahoo
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_vwce_value
+          text:
+            format: "%.2f"
+            args: ['x']
+
+# ── Sensores de texto (condición) desde HA ────────────────────────────────────
+text_sensor:
+  - platform: homeassistant
+    id: wx_condition
+    entity_id: sensor.${location}_condicion
+    internal: true
+    on_value:
+      - lambda: |-
+          std::string cond = x;
+          const char* icon = "\uF185";
+          if (cond == "clear-night")          icon = "\uF186";
+          else if (cond == "cloudy")           icon = "\uF0C2";
+          else if (cond == "fog")              icon = "\uF75F";
+          else if (cond == "hail")             icon = "\uF73B";
+          else if (cond == "lightning")        icon = "\uF0E7";
+          else if (cond == "lightning-rainy")  icon = "\uF0E7";
+          else if (cond == "partlycloudy")     icon = "\uF6C4";
+          else if (cond == "pouring")          icon = "\uF73D";
+          else if (cond == "rainy")            icon = "\uF740";
+          else if (cond == "snowy")            icon = "\uF2DC";
+          else if (cond == "snowy-rainy")      icon = "\uF2DC";
+          else if (cond == "sunny")            icon = "\uF185";
+          else if (cond == "windy")            icon = "\uF72E";
+          else if (cond == "windy-variant")    icon = "\uF72E";
+          else if (cond == "exceptional")      icon = "\uF071";
+          lv_label_set_text(id(lbl_wx_icon), icon);
+          lv_label_set_text(id(lbl_wx_icon_big), icon);
+      - lambda: |-
+          std::string cond = x;
+          lv_color_t col;
+          if (cond == "sunny" || cond == "clear-night")
+            col = lv_color_hex(0xFFD600);
+          else if (cond == "partlycloudy")
+            col = lv_color_hex(0xFFAA00);
+          else if (cond == "cloudy" || cond == "fog")
+            col = lv_color_hex(0x90A4AE);
+          else if (cond == "rainy" || cond == "pouring")
+            col = lv_color_hex(0x42A5F5);
+          else if (cond == "snowy" || cond == "snowy-rainy")
+            col = lv_color_hex(0xB3E5FC);
+          else if (cond == "lightning" || cond == "lightning-rainy")
+            col = lv_color_hex(0xFFFF00);
+          else
+            col = lv_color_hex(0xFFD600);
+          lv_obj_set_style_text_color(id(lbl_wx_icon_big), col, 0);
+          lv_obj_set_style_text_color(id(lbl_wx_icon), col, 0);
+
+  - platform: homeassistant
+    id: wx_condition_text
+    entity_id: sensor.${location}_condicion_texto
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_wx_cond_text
+          text: !lambda 'return x.c_str();'
+
+  - platform: homeassistant
+    id: fc_0_cond
+    entity_id: sensor.${location}_forecast_3h_cond
+    internal: true
+    on_value:
+      - lambda: |-
+          const char* icon = "\uF185";
+          std::string c = x;
+          if (c=="cloudy" || c=="fog")          icon = "\uF0C2";
+          else if (c=="partlycloudy")            icon = "\uF6C4";
+          else if (c=="rainy"||c=="pouring")     icon = "\uF740";
+          else if (c=="snowy"||c=="snowy-rainy") icon = "\uF2DC";
+          else if (c=="lightning"||c=="lightning-rainy") icon = "\uF0E7";
+          else if (c=="clear-night")             icon = "\uF186";
+          lv_label_set_text(id(lbl_fc0_icon), icon);
+
+  - platform: homeassistant
+    id: fc_1_cond
+    entity_id: sensor.${location}_forecast_6h_cond
+    internal: true
+    on_value:
+      - lambda: |-
+          const char* icon = "\uF185";
+          std::string c = x;
+          if (c=="cloudy" || c=="fog")          icon = "\uF0C2";
+          else if (c=="partlycloudy")            icon = "\uF6C4";
+          else if (c=="rainy"||c=="pouring")     icon = "\uF740";
+          else if (c=="snowy"||c=="snowy-rainy") icon = "\uF2DC";
+          else if (c=="lightning"||c=="lightning-rainy") icon = "\uF0E7";
+          else if (c=="clear-night")             icon = "\uF186";
+          lv_label_set_text(id(lbl_fc1_icon), icon);
+
+  - platform: homeassistant
+    id: fc_2_cond
+    entity_id: sensor.${location}_forecast_d1_cond
+    internal: true
+    on_value:
+      - lambda: |-
+          const char* icon = "\uF185";
+          std::string c = x;
+          if (c=="cloudy" || c=="fog")          icon = "\uF0C2";
+          else if (c=="partlycloudy")            icon = "\uF6C4";
+          else if (c=="rainy"||c=="pouring")     icon = "\uF740";
+          else if (c=="snowy"||c=="snowy-rainy") icon = "\uF2DC";
+          else if (c=="lightning"||c=="lightning-rainy") icon = "\uF0E7";
+          else if (c=="clear-night")             icon = "\uF186";
+          lv_label_set_text(id(lbl_fc2_icon), icon);
+
+  - platform: homeassistant
+    id: fc_3_cond
+    entity_id: sensor.${location}_forecast_d2_cond
+    internal: true
+    on_value:
+      - lambda: |-
+          const char* icon = "\uF185";
+          std::string c = x;
+          if (c=="cloudy" || c=="fog")          icon = "\uF0C2";
+          else if (c=="partlycloudy")            icon = "\uF6C4";
+          else if (c=="rainy"||c=="pouring")     icon = "\uF740";
+          else if (c=="snowy"||c=="snowy-rainy") icon = "\uF2DC";
+          else if (c=="lightning"||c=="lightning-rainy") icon = "\uF0E7";
+          else if (c=="clear-night")             icon = "\uF186";
+          lv_label_set_text(id(lbl_fc3_icon), icon);
+
+  - platform: homeassistant
+    id: fc_d1_label
+    entity_id: sensor.${location}_forecast_d1_diaSemana
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc2_day
+          text: !lambda 'return x.c_str();'
+
+  - platform: homeassistant
+    id: fc_d2_label
+    entity_id: sensor.${location}_forecast_d2_diaSemana
+    internal: true
+    on_value:
+      - lvgl.label.update:
+          id: lbl_fc3_day
+          text: !lambda 'return x.c_str();'
+
+# ── Actualización de hora y WiFi ──────────────────────────────────────────────
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          auto t = id(ha_time).now();
+          if (!t.is_valid()) return;
+          char buf[6];
+          snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
+          lv_label_set_text(id(lbl_hora), buf);
+
+  - interval: 5s
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - lvgl.widget.update:
+                id: lbl_wifi_top
+                text_color: 0x4ADE80
+          else:
+            - lvgl.widget.update:
+                id: lbl_wifi_top
+                text_color: 0xFF4444
+
+# ── Pantalla ST7789 ───────────────────────────────────────────────────────────
+display:
+  - platform: ili9xxx
+    model: st7789v
+    id: cyd_display
+    spi_id: spi_display
+    cs_pin: GPIO15
+    dc_pin: GPIO2
+    color_order: bgr
+    invert_colors: false
+    data_rate: 40MHz
+    dimensions:
+      width: 320
+      height: 240
+    transform:
+      swap_xy: true
+      mirror_x: true
+    auto_clear_enabled: false
+    update_interval: never
+
+# ── Táctil XPT2046 ────────────────────────────────────────────────────────────
+touchscreen:
+  - platform: xpt2046
+    id: cyd_touch
+    spi_id: spi_touch
+    cs_pin: GPIO33
+    interrupt_pin: GPIO36
+    update_interval: 10ms
+    threshold: 250
+    calibration:
+      x_min: 280
+      x_max: 3860
+      y_min: 180
+      y_max: 3860
+    transform:
+      swap_xy: true
+      mirror_x: false
+    on_touch:
+      - lambda: |-
+          if (id(screen_dimmed)) {
+            id(screen_dimmed) = false;
+            auto call = id(backlight).turn_on();
+            call.set_brightness(1.0f);
+            call.set_transition_length(300);
+            call.perform();
+          }
+
+# ══════════════════════════════════════════════════════════════════════════════
+#                        LVGL — Interfaz gráfica
+# ══════════════════════════════════════════════════════════════════════════════
+lvgl:
+  displays:
+    - cyd_display
+  touchscreens:
+    - cyd_touch
+  buffer_size: 25%
+  color_depth: 16
+  default_font: montserrat_14
+  page_wrap: true
+
+  on_idle:
+    timeout: 60s
+    then:
+      - lambda: 'id(screen_dimmed) = true;'
+      - light.turn_on:
+          id: backlight
+          brightness: 15%
+          transition_length: 3s
+
+  style_definitions:
+    # Tarjeta con sombra (para VWCE)
+    - id: style_card
+      bg_color: 0x161B22
+      bg_opa: cover
+      radius: 16
+      border_width: 1
+      border_color: 0x30363D
+      border_opa: 60%
+      shadow_color: 0x000000
+      shadow_width: 15
+      shadow_opa: 25%
+      shadow_ofs_y: 4
+
+    # Fila de prevision
+    - id: style_fc_row
+      bg_color: 0x0D2040
+      bg_opa: cover
+      radius: 8
+      border_width: 1
+      border_color: 0x1A4A6A
+      border_opa: cover
+      pad_all: 0
+
+  # ── Capa superior — flotante sin barra fija ─────────────────────────────
+  top_layer:
+    widgets:
+      # Hora (siempre visible, top-right)
+      - label:
+          id: lbl_hora
+          x: 240
+          y: 5
+          text: "--:--"
+          text_font: montserrat_18
+          text_color: 0xFFFFFF
+
+      # WiFi (siempre visible)
+      - label:
+          id: lbl_wifi_top
+          x: 295
+          y: 8
+          text: "\uF1EB"
+          text_font: fa_14
+          text_color: 0x4ADE80
+
+      # Boton < pagina anterior
+      - button:
+          x: 0
+          y: 20
+          width: 40
+          height: 200
+          bg_opa: transp
+          border_width: 0
+          shadow_width: 0
+          on_click:
+            - lvgl.page.previous:
+                animation: MOVE_RIGHT
+                time: 250ms
+          widgets:
+            - label:
+                align: CENTER
+                text: "\uF053"
+                text_font: fa_14
+                text_color: 0x2A4A6A
+
+      # Boton > pagina siguiente
+      - button:
+          x: 280
+          y: 20
+          width: 40
+          height: 200
+          bg_opa: transp
+          border_width: 0
+          shadow_width: 0
+          on_click:
+            - lvgl.page.next:
+                animation: MOVE_LEFT
+                time: 250ms
+          widgets:
+            - label:
+                align: CENTER
+                text: "\uF054"
+                text_font: fa_14
+                text_color: 0x2A4A6A
+
+      # Indicadores de pagina (3 dots centrados)
+      - obj:
+          id: dot_p1
+          x: 143
+          y: 224
+          width: 7
+          height: 7
+          radius: 4
+          bg_color: 0x00BCD4
+          bg_opa: cover
+          border_width: 0
+          clickable: false
+      - obj:
+          id: dot_p2
+          x: 156
+          y: 224
+          width: 7
+          height: 7
+          radius: 4
+          bg_color: 0x2A3A50
+          bg_opa: cover
+          border_width: 0
+          clickable: false
+      - obj:
+          id: dot_p3
+          x: 169
+          y: 224
+          width: 7
+          height: 7
+          radius: 4
+          bg_color: 0x2A3A50
+          bg_opa: cover
+          border_width: 0
+          clickable: false
+
+      # Boton brillo (esquina superior derecha)
+      - button:
+          x: 288
+          y: 0
+          width: 32
+          height: 28
+          bg_opa: transp
+          border_width: 0
+          shadow_width: 0
+          on_click:
+            - lambda: |-
+                id(brightness_level) = (id(brightness_level) + 1) % 3;
+                float levels[] = {1.0f, 0.5f, 0.25f};
+                auto call = id(backlight).turn_on();
+                call.set_brightness(levels[id(brightness_level)]);
+                call.set_transition_length(200);
+                call.perform();
+                id(screen_dimmed) = false;
+
+  # ════════════════════════════════════════════════════════════════════════════
+  #  PAGINAS
+  # ════════════════════════════════════════════════════════════════════════════
+  pages:
+
+    # ══════ PAGINA 1: PANEL — meteo exterior + sensores interiores ══════
+    - id: page_weather
+      on_load:
+        - lvgl.widget.update:
+            id: dot_p1
+            bg_color: 0x00BCD4
+        - lvgl.widget.update:
+            id: [dot_p2, dot_p3]
+            bg_color: 0x2A3A50
+      widgets:
+        - obj:
+            x: 0
+            y: 0
+            width: 320
+            height: 240
+            bg_color: 0x0D1117
+            bg_opa: cover
+            radius: 0
+            border_width: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+
+              # Barra acento teal (3px)
+              - obj:
+                  x: 0
+                  y: 0
+                  width: 320
+                  height: 3
+                  bg_color: 0x00BCD4
+                  bg_opa: cover
+                  radius: 0
+                  border_width: 0
+                  clickable: false
+
+              # Localizacion
+              - label:
+                  x: 12
+                  y: 6
+                  text: "${location_display}"
+                  text_font: montserrat_14
+                  text_color: 0x00BCD4
+
+              # Mini icono meteo junto a localizacion
+              - label:
+                  id: lbl_wx_icon
+                  x: 100
+                  y: 5
+                  text: "\uF185"
+                  text_font: fa_18
+                  text_color: 0xFFD600
+
+              # ── Zona hero: icono grande + temperatura ────────────────────
+              - label:
+                  id: lbl_wx_icon_big
+                  x: 14
+                  y: 26
+                  text: "\uF185"
+                  text_font: fa_48
+                  text_color: 0xFFD600
+
+              - label:
+                  id: lbl_wx_temp
+                  x: 80
+                  y: 26
+                  text: "--.-"
+                  text_font: montserrat_48
+                  text_color: 0x00E5FF
+
+              - label:
+                  x: 195
+                  y: 34
+                  text: "\xB0C"
+                  text_font: montserrat_22
+                  text_color: 0x4FC3F7
+
+              # Condicion texto
+              - label:
+                   id: lbl_wx_cond_text
+                   x: 10
+                   y: 76
+                   width: 180
+                   text: "---"
+                   text_font: montserrat_14
+                   text_color: 0x78909C
+                   long_mode: CLIP
+
+              # ── Separador teal ───────────────────────────────────────────
+              - obj:
+                  x: 10
+                  y: 94
+                  width: 300
+                  height: 2
+                  bg_color: 0x00BCD4
+                  bg_opa: 50%
+                  radius: 1
+                  border_width: 0
+                  clickable: false
+
+              # ── Grid 3x2: sensores interiores + meteo exterior ──────────
+              # Fila 1: CO2 | T.INT
+              - label:
+                  x: 20
+                  y: 102
+                  text: "CO2"
+                  text_font: montserrat_14
+                  text_color: 0x4FC3F7
+              - label:
+                  id: lbl_s_co2
+                  x: 20
+                  y: 118
+                  text: "--- ppm"
+                  text_font: montserrat_18
+                  text_color: 0x69FF47
+
+              - label:
+                  x: 170
+                  y: 102
+                  text: "T.INT"
+                  text_font: montserrat_14
+                  text_color: 0x4FC3F7
+              - label:
+                  id: lbl_s_temp
+                  x: 170
+                  y: 118
+                  text: "--.-\xB0C"
+                  text_font: montserrat_18
+                  text_color: 0xFFFFFF
+
+              # Fila 2: HUM | PRESION
+              - label:
+                  x: 20
+                  y: 140
+                  text: "HUM"
+                  text_font: montserrat_14
+                  text_color: 0x4FC3F7
+              - label:
+                  id: lbl_s_hum
+                  x: 20
+                  y: 156
+                  text: "--%"
+                  text_font: montserrat_18
+                  text_color: 0xFFFFFF
+
+              - label:
+                  x: 170
+                  y: 140
+                  text: "PRESION"
+                  text_font: montserrat_14
+                  text_color: 0x4FC3F7
+              - label:
+                  id: lbl_s_press
+                  x: 170
+                  y: 156
+                  text: "---- hPa"
+                  text_font: montserrat_18
+                  text_color: 0xFFFFFF
+
+              # Separador fino
+              - obj:
+                  x: 10
+                  y: 178
+                  width: 300
+                  height: 1
+                  bg_color: 0x1A2840
+                  bg_opa: cover
+                  radius: 0
+                  border_width: 0
+                  clickable: false
+
+              # Fila 3: VIENTO | PM2.5/PM10
+              - label:
+                  x: 20
+                  y: 184
+                  text: "VIENTO"
+                  text_font: montserrat_14
+                  text_color: 0x4FC3F7
+              - label:
+                  id: lbl_wx_wind
+                  x: 20
+                  y: 200
+                  text: "-.- m/s"
+                  text_font: montserrat_18
+                  text_color: 0x69FF47
+
+              - label:
+                  x: 170
+                  y: 184
+                  text: "PM2.5"
+                  text_font: montserrat_14
+                  text_color: 0x78909C
+              - label:
+                  id: lbl_pm25_value
+                  x: 224
+                  y: 184
+                  text: "--"
+                  text_font: montserrat_14
+                  text_color: 0x69FF47
+              - label:
+                  x: 170
+                  y: 200
+                  text: "PM10"
+                  text_font: montserrat_14
+                  text_color: 0x78909C
+              - label:
+                  id: lbl_pm10_value
+                  x: 224
+                  y: 200
+                  text: "--"
+                  text_font: montserrat_14
+                  text_color: 0x69FF47
+
+    # ══════ PAGINA 2: PREVISION — pronostico meteorologico ══════
+    - id: page_prognoza
+      on_load:
+        - lvgl.widget.update:
+            id: dot_p2
+            bg_color: 0x00BCD4
+        - lvgl.widget.update:
+            id: [dot_p1, dot_p3]
+            bg_color: 0x2A3A50
+      widgets:
+        - obj:
+            x: 0
+            y: 0
+            width: 320
+            height: 240
+            bg_color: 0x0D1117
+            bg_opa: cover
+            radius: 0
+            border_width: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+
+              # Barra acento teal
+              - obj:
+                  x: 0
+                  y: 0
+                  width: 320
+                  height: 3
+                  bg_color: 0x00BCD4
+                  bg_opa: cover
+                  radius: 0
+                  border_width: 0
+                  clickable: false
+
+              # Titulo
+              - label:
+                  x: 12
+                  y: 8
+                  text: "PREVISION"
+                  text_font: montserrat_14
+                  text_color: 0x00BCD4
+
+              # ── Fila 0: +3h ─────────────────────────────────────────────
+              - obj:
+                  styles: style_fc_row
+                  x: 20
+                  y: 30
+                  width: 280
+                  height: 38
+                  clickable: false
+                  scrollable: false
+                  gesture_bubble: true
+                  widgets:
+                    - label:
+                        id: lbl_fc0_icon
+                        x: 4
+                        y: 5
+                        text: "\uF185"
+                        text_font: fa_28
+                        text_color: 0xFFD600
+                    - label:
+                        id: lbl_fc0_head
+                        x: 44
+                        y: 12
+                        text: "+3h"
+                        text_font: montserrat_14
+                        text_color: 0x69FF47
+                    - label:
+                        id: lbl_fc0_temp
+                        x: 100
+                        y: 8
+                        text: "--.-°"
+                        text_font: montserrat_22
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: lbl_fc0_hum
+                        x: 175
+                        y: 5
+                        text: "--%"
+                        text_font: montserrat_14
+                        text_color: 0x90CAF9
+                    - label:
+                        id: lbl_fc0_wind
+                        x: 218
+                        y: 5
+                        text: "-m/s"
+                        text_font: montserrat_14
+                        text_color: 0x69FF47
+
+              # ── Fila 1: +6h ─────────────────────────────────────────────
+              - obj:
+                  styles: style_fc_row
+                  x: 20
+                  y: 74
+                  width: 280
+                  height: 38
+                  clickable: false
+                  scrollable: false
+                  gesture_bubble: true
+                  widgets:
+                    - label:
+                        id: lbl_fc1_icon
+                        x: 4
+                        y: 5
+                        text: "\uF185"
+                        text_font: fa_28
+                        text_color: 0xFFD600
+                    - label:
+                        id: lbl_fc1_head
+                        x: 44
+                        y: 12
+                        text: "+6h"
+                        text_font: montserrat_14
+                        text_color: 0x69FF47
+                    - label:
+                        id: lbl_fc1_temp
+                        x: 100
+                        y: 8
+                        text: "--.-°"
+                        text_font: montserrat_22
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: lbl_fc1_hum
+                        x: 175
+                        y: 5
+                        text: "--%"
+                        text_font: montserrat_14
+                        text_color: 0x90CAF9
+                    - label:
+                        id: lbl_fc1_wind
+                        x: 218
+                        y: 5
+                        text: "-m/s"
+                        text_font: montserrat_14
+                        text_color: 0x69FF47
+
+              # ── Fila 2: D+1 ─────────────────────────────────────────────
+              - obj:
+                  styles: style_fc_row
+                  x: 20
+                  y: 118
+                  width: 280
+                  height: 38
+                  clickable: false
+                  scrollable: false
+                  gesture_bubble: true
+                  widgets:
+                    - label:
+                        id: lbl_fc2_icon
+                        x: 4
+                        y: 5
+                        text: "\uF0C2"
+                        text_font: fa_28
+                        text_color: 0x90A4AE
+                    - label:
+                        id: lbl_fc2_day
+                        x: 44
+                        y: 12
+                        text: "D+1"
+                        text_font: montserrat_14
+                        text_color: 0xFFD600
+                    - label:
+                        id: lbl_fc2_temp
+                        x: 100
+                        y: 4
+                        text: "--.-°"
+                        text_font: montserrat_18
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: lbl_fc2_tempmin
+                        x: 100
+                        y: 22
+                        text: "--.-°"
+                        text_font: montserrat_14
+                        text_color: 0x78909C
+                    - label:
+                        id: lbl_fc2_hum
+                        x: 175
+                        y: 5
+                        text: "--%"
+                        text_font: montserrat_14
+                        text_color: 0x90CAF9
+                    - label:
+                        id: lbl_fc2_wind
+                        x: 218
+                        y: 5
+                        text: "-m/s"
+                        text_font: montserrat_14
+                        text_color: 0x69FF47
+
+              # ── Fila 3: D+2 ─────────────────────────────────────────────
+              - obj:
+                  styles: style_fc_row
+                  x: 20
+                  y: 162
+                  width: 280
+                  height: 38
+                  clickable: false
+                  scrollable: false
+                  gesture_bubble: true
+                  widgets:
+                    - label:
+                        id: lbl_fc3_icon
+                        x: 4
+                        y: 5
+                        text: "\uF185"
+                        text_font: fa_28
+                        text_color: 0xFFD600
+                    - label:
+                        id: lbl_fc3_day
+                        x: 44
+                        y: 12
+                        text: "D+2"
+                        text_font: montserrat_14
+                        text_color: 0xFFD600
+                    - label:
+                        id: lbl_fc3_temp
+                        x: 100
+                        y: 4
+                        text: "--.-°"
+                        text_font: montserrat_18
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: lbl_fc3_tempmin
+                        x: 100
+                        y: 22
+                        text: "--.-°"
+                        text_font: montserrat_14
+                        text_color: 0x78909C
+                    - label:
+                        id: lbl_fc3_hum
+                        x: 175
+                        y: 5
+                        text: "--%"
+                        text_font: montserrat_14
+                        text_color: 0x90CAF9
+                    - label:
+                        id: lbl_fc3_wind
+                        x: 218
+                        y: 5
+                        text: "-m/s"
+                        text_font: montserrat_14
+                        text_color: 0x69FF47
+
+    # ══════ PAGINA 3: VWCE — precio fondo indexado ══════
+    - id: page_vwce
+      on_load:
+        - lvgl.widget.update:
+            id: dot_p3
+            bg_color: 0xFFD600
+        - lvgl.widget.update:
+            id: [dot_p1, dot_p2]
+            bg_color: 0x2A3A50
+      widgets:
+        - obj:
+            x: 0
+            y: 0
+            width: 320
+            height: 240
+            bg_color: 0x0D1117
+            bg_opa: cover
+            radius: 0
+            border_width: 0
+            pad_all: 0
+            scrollable: false
+            widgets:
+
+              # Barra acento dorada (3px)
+              - obj:
+                  x: 0
+                  y: 0
+                  width: 320
+                  height: 3
+                  bg_color: 0xFFD600
+                  bg_opa: cover
+                  radius: 0
+                  border_width: 0
+                  clickable: false
+
+              # Titulo VWCE
+              - label:
+                  x: 16
+                  y: 12
+                  text: "VWCE"
+                  text_font: montserrat_22
+                  text_color: 0xFFD600
+
+              # Badge XETRA
+              - label:
+                  align: TOP_MID
+                  y: 16
+                  text: "XETRA"
+                  text_font: montserrat_14
+                  text_color: 0x808090
+
+              # Tarjeta central con precio
+              - obj:
+                  styles: style_card
+                  align: CENTER
+                  y: -5
+                  width: 260
+                  height: 115
+                  clickable: false
+                  scrollable: false
+                  gesture_bubble: true
+                  widgets:
+                    # Precio
+                    - label:
+                        id: lbl_vwce_value
+                        align: CENTER
+                        y: -12
+                        text: "---"
+                        text_font: montserrat_48
+                        text_color: 0xFFFFFF
+                    # Unidad
+                    - label:
+                        align: CENTER
+                        y: 30
+                        text: "EUR"
+                        text_font: montserrat_16
+                        text_color: 0x808090

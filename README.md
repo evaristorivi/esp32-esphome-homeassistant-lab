@@ -32,6 +32,8 @@ El proyecto soporta dos plataformas hardware distintas. Elige la que prefieras:
 | `cyd_dummy.yaml` | CYD | TFT 2.8" LVGL táctil — todos los datos desde HA (sin sensores físicos en el CYD) |
 | `cyd_sensors_vwce_dummy.yaml` | CYD | TFT 2.8" LVGL táctil — sensores I²C directos + VWCE desde HA |
 | `cyd_sensors_vwce.yaml` | CYD | TFT 2.8" LVGL táctil — sensores I²C directos + VWCE Yahoo Finance directo |
+| `cyd_weather_dummy.yaml` | CYD | TFT 2.8" LVGL táctil — panel meteo + sensores interiores (via HA) + previsión + VWCE |
+| `cyd_weather.yaml` | CYD | TFT 2.8" LVGL táctil — panel meteo + sensores I²C directos + previsión + VWCE desde HA |
 
 ---
 
@@ -88,15 +90,21 @@ docker run -d \
 
 Accede a `http://<IP_DE_TU_RASPBERRY>:8123` desde el navegador para completar la configuración inicial.
 
-### Sensor REST de VWCE
+### Archivos de configuración de Home Assistant
 
-Para que HA consulte el precio de VWCE desde Yahoo Finance, añade en `homeassistant/configuration.yaml`:
+El repositorio incluye en `homeassistant/` los archivos listos para copiar al directorio de configuración de HA:
 
-```yaml
-sensor: !include homeassistant/vwce_sensor.yaml
-```
+| Archivo | Qué hace | Cómo incluirlo en `configuration.yaml` |
+|---|---|---|
+| `vwce_sensor.yaml` | Sensor REST — consulta el precio de VWCE a Yahoo Finance | `sensor: !include vwce_sensor.yaml` |
+| `air_quality_sensor.yaml` | Sensor REST \u2014 PM2.5 y PM10 desde Open-Meteo Air Quality API | `rest: !include air_quality_sensor.yaml` |
+| `weather_sensors.yaml` | Templates de condición actual y previsión horaria/diaria (`weather.get_forecasts`) | `template: !include weather_sensors.yaml` |
 
-El archivo `vwce_sensor.yaml` viene incluido en el repositorio.
+El `configuration.yaml` incluido en el repositorio ya tiene las tres líneas configuradas como referencia.
+
+> `air_quality_sensor.yaml` requiere añadir `air_quality_url` en el `secrets.yaml` de HA. Ver `homeassistant/secrets.yaml.example` para la plantilla con instrucciones.
+
+> `weather_sensors.yaml` usa la entidad `weather.casa`. Si tu entidad weather tiene otro nombre, actualiza las referencias en el archivo.
 
 ---
 
@@ -189,10 +197,15 @@ esphome/
   cyd_dummy.yaml                        # CYD — datos desde HA, sin sensores físicos
   cyd_sensors_vwce_dummy.yaml           # CYD — sensores I²C directos + VWCE via HA
   cyd_sensors_vwce.yaml                 # CYD — sensores I²C directos + VWCE HTTP directo
-  secrets.yaml.example
+  cyd_weather_dummy.yaml                # CYD — panel meteo + sensores interiores (HA) + prevision + VWCE
+  cyd_weather.yaml                      # CYD — panel meteo + sensores I2C directos + prevision + VWCE
+  secrets.yaml.example                  # Plantilla de credenciales ESPHome
 homeassistant/
-  configuration.yaml
-  vwce_sensor.yaml                      # Sensor REST de VWCE
+  configuration.yaml                    # Configuración principal de HA
+  vwce_sensor.yaml                      # Sensor REST de VWCE (Yahoo Finance)
+  air_quality_sensor.yaml               # Sensor REST de calidad del aire (Open-Meteo)
+  weather_sensors.yaml                  # Templates: condición actual + previsión horaria/diaria
+  secrets.yaml.example                  # Plantilla de credenciales HA (air_quality_url)
 docs/
   ESP32_C3.md                           # Guía completa ESP32-C3 Super Mini
   CYD.md                                # Guía completa CYD

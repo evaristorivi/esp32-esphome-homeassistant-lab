@@ -1,0 +1,22 @@
+# Calidad del aire — Open-Meteo Air Quality API
+# Una sola llamada HTTP cada hora → sensores PM2.5 y PM10
+#
+# Incluir en configuration.yaml:
+#   rest: !include air_quality_sensor.yaml
+
+- resource: !secret air_quality_url
+  scan_interval: 3600
+  sensor:
+    - name: home_pm25
+      unique_id: home_pm25
+      value_template: "{{ value_json.current.pm2_5 | round(1) }}"
+      unit_of_measurement: "µg/m³"
+      device_class: pm25
+      state_class: measurement
+
+    - name: home_pm10
+      unique_id: home_pm10
+      value_template: "{{ value_json.current.pm10 | round(1) }}"
+      unit_of_measurement: "µg/m³"
+      device_class: pm10
+      state_class: measurement

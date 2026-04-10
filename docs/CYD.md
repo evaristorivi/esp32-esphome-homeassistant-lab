@@ -125,6 +125,44 @@ Los valores por defecto (`x_min: 280`, `x_max: 3860`, `y_min: 340`, `y_max: 3860
 
 Si la pantalla aparece invertida, cambia `mirror_x` / `mirror_y` en las secciones `transform` del display y del touchscreen.
 
+---
+
+## Configuración de Home Assistant
+
+Los Proyectos 11 y 12 (`cyd_weather_dummy` y `cyd_weather`) requieren archivos adicionales en Home Assistant. Todos están en la carpeta `homeassistant/` del repositorio — cópialos al directorio de configuración de HA.
+
+### Archivos necesarios
+
+| Archivo | Proyectos que lo usan | Qué hace |
+|---|---|---|
+| `vwce_sensor.yaml` | P8, P9, P12 | Sensor REST — precio VWCE desde Yahoo Finance |
+| `air_quality_sensor.yaml` | P11, P12 | Sensor REST — PM2.5 y PM10 desde Open-Meteo (1 req/hora) |
+| `weather_sensors.yaml` | P11, P12 | Templates — condición actual + previsión +3h, +6h, día+1, día+2 |
+
+### Incluir en `configuration.yaml`
+
+```yaml
+sensor:   !include vwce_sensor.yaml
+rest:     !include air_quality_sensor.yaml
+template: !include weather_sensors.yaml
+```
+
+El `configuration.yaml` del repositorio ya tiene las tres líneas como referencia.
+
+### `secrets.yaml` de Home Assistant
+
+`air_quality_sensor.yaml` lee la URL de la API desde `secrets.yaml` de HA (no del ESPHome). Copia `homeassistant/secrets.yaml.example` a `secrets.yaml` en tu config de HA y sustituye `LAT` y `LON` por tus coordenadas:
+
+```yaml
+air_quality_url: "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=43.3603&longitude=-5.8448&current=pm2_5,pm10"
+```
+
+> La API de Open-Meteo es gratuita y no requiere clave. Las coordenadas las puedes obtener en [latlong.net](https://www.latlong.net/) o en Google Maps (clic derecho sobre tu ubicación).
+
+### Entidad weather
+
+`weather_sensors.yaml` usa `weather.casa` como entidad base. Si en tu instalación la entidad tiene otro nombre (p.ej. `weather.home` o `weather.mi_ciudad`), actualiza todas las referencias en el archivo.
+
 ### Diferencias respecto al ESP32-C3
 
 | | ESP32-C3 (Proyectos 1–7) | CYD (Proyectos 8–10) |
@@ -192,13 +230,74 @@ esphome run esphome/cyd_sensors_vwce.yaml --device sensors-cyd-vwce.local
 
 ---
 
-### Diferencias entre Proyectos 8, 9 y 10
+### Proyecto 11: CYD estación meteorológica sin sensores I²C (`cyd_weather_dummy.yaml`)
+<p align="center">
+  <img src="../images/eltiempo1.jpeg" alt="eltiempo1.jpeg" style="width:60%;">
+</p>
+<p align="center">
+  <img src="../images/eltiempo2.jpeg" alt="eltiempo2.jpeg" style="width:60%;">
+</p>
+<p align="center">
+  <img src="../images/eltiempo3.jpeg" alt="eltiempo3.jpeg" style="width:60%;">
+</p>
+<p align="center">
+  <img src="../images/eltiempo4.jpeg" alt="eltiempo4.jpeg" style="width:60%;">
+</p>
+<p align="center">
+  <img src="../images/eltiempo5.jpeg" alt="eltiempo5.jpeg" style="width:60%;">
+</p>
+Pantalla meteorológica con **3 páginas**: panel (meteo exterior + sensores interiores), previsión y VWCE. La información meteorológica viene de Home Assistant a través del template `weather_sensors.yaml`. Los sensores interiores (CO₂, temperatura, humedad, presión) se leen desde HA — publicados por otro ESP32 (ej. ESP32-C3). No necesita sensores físicos conectados al CYD.
 
-| | Proyecto 8 (`cyd_dummy`) | Proyecto 9 (`cyd_sensors_vwce_dummy`) | Proyecto 10 (`cyd_sensors_vwce`) |
-|---|---|---|---|
-| Sensores ambientales | Desde Home Assistant | Físicos I²C en CN1 | Físicos I²C en CN1 |
-| Bus I²C | No configurado | GPIO22 (SDA) / GPIO27 (SCL) | GPIO22 (SDA) / GPIO27 (SCL) |
-| VWCE | Desde HA | Desde HA | HTTP directo Yahoo Finance |
-| Necesita ESP32-C3 activo | Sí | No | No |
-| Necesita Home Assistant | Sí | Solo para VWCE | No |
-| Interfaz LVGL | Idéntica | Idéntica | Idéntica |
+| Dato | Origen |
+|---|---|
+| Temperatura ext., viento, condición | `weather_sensors.yaml` en HA (`weather.casa`) |
+| Previsión +3h, +6h, día+1, día+2 | `weather_sensors.yaml` en HA (`weather.get_forecasts`) |
+| CO₂, T interior, H interior, Presión | Desde HA (publicados por ESP32-C3) |
+| PM2.5 / PM10 | `air_quality_sensor.yaml` en HA (Open-Meteo) |
+| VWCE | Desde HA (`sensor.vwce_precio_yahoo`) |
+
+**Requiere** incluir `weather_sensors.yaml` y `air_quality_sensor.yaml` en Home Assistant. También requiere que el ESP32-C3 con sensores esté activo y publicando a HA.
+
+```sh
+esphome run esphome/cyd_weather_dummy.yaml --device COMx
+esphome run esphome/cyd_weather_dummy.yaml --device cyd-weather-dummy.local
+```
+
+---
+
+### Proyecto 12: CYD estación meteorológica con sensores I²C (`cyd_weather.yaml`)
+
+Igual que el Proyecto 11 pero con **sensores I²C físicos conectados al CN1** para los datos interiores (CO₂, temperatura, humedad, presión). Los datos meteorológicos exteriores siguen viniendo de HA.
+
+| Dato | Origen |
+|---|---|
+| Temperatura ext., viento, condición | `weather_sensors.yaml` en HA (`weather.casa`) |
+| Previsión +3h, +6h, día+1, día+2 | `weather_sensors.yaml` en HA (`weather.get_forecasts`) |
+| CO₂, T interior, H interior, Presión | **Sensores I²C en CN1** (directos) |
+| PM2.5 / PM10 | `air_quality_sensor.yaml` en HA (Open-Meteo) |
+| VWCE | Desde HA (`sensor.vwce_precio_yahoo`) |
+
+**Requiere** tanto `weather_sensors.yaml` como `air_quality_sensor.yaml` configurados en Home Assistant.
+
+```sh
+esphome run esphome/cyd_weather.yaml --device COMx
+esphome run esphome/cyd_weather.yaml --device cyd-weather.local
+```
+
+---
+
+### Diferencias entre Proyectos 8–12
+
+| | P8 (`cyd_dummy`) | P9 (`cyd_sensors_vwce_dummy`) | P10 (`cyd_sensors_vwce`) | P11 (`cyd_weather_dummy`) | P12 (`cyd_weather`) |
+|---|---|---|---|---|---|
+| Sensores ambientales | Desde Home Assistant | Físicos I²C en CN1 | Físicos I²C en CN1 | Desde HA (`weather.casa`) | Desde HA (`weather.casa`) |
+| Bus I²C | No configurado | GPIO22 / GPIO27 | GPIO22 / GPIO27 | No configurado | GPIO22 / GPIO27 |
+| VWCE | Desde HA | Desde HA | HTTP directo Yahoo Finance | Desde HA | Desde HA |
+| PM2.5 / PM10 | No | No | No | Desde HA | Desde HA |
+| Previsión meteorológica | No | No | No | Desde HA (`weather_sensors.yaml`) | Desde HA (`weather_sensors.yaml`) |
+| Sensores interiores | Desde HA (ESP32-C3) | Físicos I²C en CN1 | Físicos I²C en CN1 | Desde HA (ESP32-C3) | Físicos I²C en CN1 |
+| Necesita ESP32-C3 activo | Sí | No | No | Sí (para sensores interiores) | No |
+| Necesita Home Assistant | Sí | Solo para VWCE | No | Sí | Sí |
+| Páginas | 5 (CO₂,T,H,P,VWCE) | 5 (CO₂,T,H,P,VWCE) | 5 (CO₂,T,H,P,VWCE) | 3 (Panel, Previsión, VWCE) | 3 (Panel, Previsión, VWCE) |
+
+> **Agradecimiento:** Este proyecto se inspira en parte en el excelente trabajo de [ESP32-HAM-CLOCK de SP3KON](https://github.com/SP3KON/ESP32-HAM-CLOCK), que sirvió de referencia para el diseño de la CYD estación meteorológica.

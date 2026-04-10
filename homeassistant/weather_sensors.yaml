@@ -1,0 +1,254 @@
+# ============================================================================
+# Home Assistant — sensores de tiempo para cyd_weather.yaml
+#
+# Archivo: homeassistant/weather_sensors.yaml
+# Incluir en configuration.yaml así:
+#
+#   template: !include weather_sensors.yaml
+#
+# Requiere la integración Weather de HA configurada.
+# Entidad base: weather.casa (Open-Meteo)
+#
+# Estructura:
+#   Bloque 1: condición actual (state_attr directo — siempre válido)
+#   Bloque 2: previsión horaria (+3h, +6h) — weather.get_forecasts hourly
+#   Bloque 3: previsión diaria (día+1, día+2) — weather.get_forecasts daily
+#
+# El atributo `forecast` de la entidad weather está deprecado desde HA 2024.x.
+# Esta versión usa la acción weather.get_forecasts, que es la forma correcta.
+# ============================================================================
+
+# ── Bloque 1: Condición actual ────────────────────────────────────────────────
+- sensor:
+
+    - name: home_temperatura
+      unique_id: home_temperatura
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {{ state_attr('weather.casa', 'temperature') | float(0) }}
+
+    - name: home_humedad
+      unique_id: home_humedad
+      unit_of_measurement: "%"
+      device_class: humidity
+      state_class: measurement
+      state: >
+        {{ state_attr('weather.casa', 'humidity') | float(0) }}
+
+    - name: home_presion
+      unique_id: home_presion
+      unit_of_measurement: "hPa"
+      device_class: pressure
+      state_class: measurement
+      state: >
+        {{ state_attr('weather.casa', 'pressure') | float(0) }}
+
+    - name: home_viento
+      unique_id: home_viento
+      unit_of_measurement: "m/s"
+      state_class: measurement
+      state: >
+        {{ (state_attr('weather.casa', 'wind_speed') | float(0) / 3.6) | round(1) }}
+
+    - name: home_condicion
+      unique_id: home_condicion
+      state: >
+        {{ states('weather.casa') }}
+
+    - name: home_condicion_texto
+      unique_id: home_condicion_texto
+      state: >
+        {% set cond = states('weather.casa') %}
+        {% if cond == 'sunny' %}despejado
+        {% elif cond == 'clear-night' %}noche clara
+        {% elif cond == 'cloudy' %}nublado
+        {% elif cond == 'partlycloudy' %}parcialmente nublado
+        {% elif cond == 'fog' %}niebla
+        {% elif cond == 'rainy' %}lluvia
+        {% elif cond == 'pouring' %}lluvia fuerte
+        {% elif cond == 'snowy' %}nieve
+        {% elif cond == 'snowy-rainy' %}aguanieve
+        {% elif cond == 'hail' %}granizo
+        {% elif cond == 'lightning' %}tormenta
+        {% elif cond == 'lightning-rainy' %}tormenta con lluvia
+        {% elif cond == 'windy' %}ventoso
+        {% elif cond == 'windy-variant' %}muy ventoso
+        {% else %}{{ cond }}
+        {% endif %}
+
+# ── Bloque 2: Previsión horaria (+3h, +6h) ───────────────────────────────────
+# Índice 0 = hora actual, índice 3 = +3h, índice 6 = +6h.
+- triggers:
+    - trigger: state
+      entity_id: weather.casa
+    - trigger: homeassistant
+      event: start
+    - trigger: time_pattern
+      minutes: "/30"
+  actions:
+    - action: weather.get_forecasts
+      target:
+        entity_id: weather.casa
+      data:
+        type: hourly
+      response_variable: fc_h
+  sensor:
+
+    - name: home_forecast_3h_temp
+      unique_id: home_forecast_3h_temp
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {{ fc_h['weather.casa'].forecast[3].temperature | float(0) | round(1) }}
+
+    - name: home_forecast_3h_hum
+      unique_id: home_forecast_3h_hum
+      unit_of_measurement: "%"
+      state_class: measurement
+      state: >
+        {{ fc_h['weather.casa'].forecast[3].precipitation_probability | float(0) | round(0) }}
+
+    - name: home_forecast_3h_wind
+      unique_id: home_forecast_3h_wind
+      unit_of_measurement: "m/s"
+      state_class: measurement
+      state: >
+        {{ (fc_h['weather.casa'].forecast[3].wind_speed | float(0) / 3.6) | round(1) }}
+
+    - name: home_forecast_3h_cond
+      unique_id: home_forecast_3h_cond
+      state: >
+        {{ fc_h['weather.casa'].forecast[3].condition | default('sunny') }}
+
+    - name: home_forecast_6h_temp
+      unique_id: home_forecast_6h_temp
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {{ fc_h['weather.casa'].forecast[6].temperature | float(0) | round(1) }}
+
+    - name: home_forecast_6h_hum
+      unique_id: home_forecast_6h_hum
+      unit_of_measurement: "%"
+      state_class: measurement
+      state: >
+        {{ fc_h['weather.casa'].forecast[6].precipitation_probability | float(0) | round(0) }}
+
+    - name: home_forecast_6h_wind
+      unique_id: home_forecast_6h_wind
+      unit_of_measurement: "m/s"
+      state_class: measurement
+      state: >
+        {{ (fc_h['weather.casa'].forecast[6].wind_speed | float(0) / 3.6) | round(1) }}
+
+    - name: home_forecast_6h_cond
+      unique_id: home_forecast_6h_cond
+      state: >
+        {{ fc_h['weather.casa'].forecast[6].condition | default('sunny') }}
+
+# ── Bloque 3: Previsión diaria (día+1, día+2) ────────────────────────────────
+# Índice 0 = hoy, índice 1 = mañana (d+1), índice 2 = pasado mañana (d+2).
+- triggers:
+    - trigger: state
+      entity_id: weather.casa
+    - trigger: homeassistant
+      event: start
+    - trigger: time_pattern
+      hours: "/3"
+  actions:
+    - action: weather.get_forecasts
+      target:
+        entity_id: weather.casa
+      data:
+        type: daily
+      response_variable: fc_d
+  sensor:
+
+    - name: home_forecast_d1_temp_max
+      unique_id: home_forecast_d1_temp_max
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {{ fc_d['weather.casa'].forecast[1].temperature | float(0) | round(1) }}
+
+    - name: home_forecast_d1_temp_min
+      unique_id: home_forecast_d1_temp_min
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {{ fc_d['weather.casa'].forecast[1].templow | float(0) | round(1) }}
+
+    - name: home_forecast_d1_hum
+      unique_id: home_forecast_d1_hum
+      unit_of_measurement: "%"
+      state_class: measurement
+      state: >
+        {{ fc_d['weather.casa'].forecast[1].precipitation_probability | float(0) | round(0) }}
+
+    - name: home_forecast_d1_wind
+      unique_id: home_forecast_d1_wind
+      unit_of_measurement: "m/s"
+      state_class: measurement
+      state: >
+        {{ (fc_d['weather.casa'].forecast[1].wind_speed | float(0) / 3.6) | round(1) }}
+
+    - name: home_forecast_d1_cond
+      unique_id: home_forecast_d1_cond
+      state: >
+        {{ fc_d['weather.casa'].forecast[1].condition | default('sunny') }}
+
+    - name: home_forecast_d1_diaSemana
+      unique_id: home_forecast_d1_diaSemana
+      state: >
+        {% set dias = ['Lun','Mar','Mie','Jue','Vie','Sab','Dom'] %}
+        {% set ts = fc_d['weather.casa'].forecast[1].datetime %}
+        {{ dias[as_datetime(ts).weekday()] }}
+
+    - name: home_forecast_d2_temp_max
+      unique_id: home_forecast_d2_temp_max
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {{ fc_d['weather.casa'].forecast[2].temperature | float(0) | round(1) }}
+
+    - name: home_forecast_d2_temp_min
+      unique_id: home_forecast_d2_temp_min
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {{ fc_d['weather.casa'].forecast[2].templow | float(0) | round(1) }}
+
+    - name: home_forecast_d2_hum
+      unique_id: home_forecast_d2_hum
+      unit_of_measurement: "%"
+      state_class: measurement
+      state: >
+        {{ fc_h['weather.casa'].forecast[0].precipitation_probability | default(0) }}
+
+    - name: home_forecast_d2_wind
+      unique_id: home_forecast_d2_wind
+      unit_of_measurement: "m/s"
+      state_class: measurement
+      state: >
+        {{ (fc_d['weather.casa'].forecast[2].wind_speed | float(0) / 3.6) | round(1) }}
+
+    - name: home_forecast_d2_cond
+      unique_id: home_forecast_d2_cond
+      state: >
+        {{ fc_d['weather.casa'].forecast[2].condition | default('sunny') }}
+
+    - name: home_forecast_d2_diaSemana
+      unique_id: home_forecast_d2_diaSemana
+      state: >
+        {% set dias = ['Lun','Mar','Mie','Jue','Vie','Sab','Dom'] %}
+        {% set ts = fc_d['weather.casa'].forecast[2].datetime %}
+        {{ dias[as_datetime(ts).weekday()] }}
+

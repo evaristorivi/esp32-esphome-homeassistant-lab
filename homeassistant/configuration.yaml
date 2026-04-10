@@ -13,3 +13,7 @@ scene: !include scenes.yaml
 
 # Custom
 sensor: !include vwce_sensor.yaml
+
+rest: !include air_quality_sensor.yaml
+
+template: !include weather_sensors.yaml

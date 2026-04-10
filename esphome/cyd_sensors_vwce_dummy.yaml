@@ -285,11 +285,11 @@ touchscreen:
     calibration:
       x_min: 280
       x_max: 3860
-      y_min: 340
+      y_min: 180
       y_max: 3860
     transform:
       swap_xy: true
-      mirror_x: true
+      mirror_x: false
     on_touch:
       - lambda: |-
           if (id(screen_dimmed)) {
