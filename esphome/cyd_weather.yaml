@@ -53,19 +53,15 @@ wifi:
 
 # ── Fuentes — FontAwesome 5 Free Solid ────────────────────────────────────────
 font:
-  - file: 'https://github.com/FortAwesome/Font-Awesome/raw/5.15.4/webfonts/fa-solid-900.ttf'
+  - file: 'fonts/fa-solid-900.ttf'
     id: fa_14
     size: 14
-    glyphs: "\uF1EB\uF053\uF054\uF0C9\uF185"
-  - file: 'https://github.com/FortAwesome/Font-Awesome/raw/5.15.4/webfonts/fa-solid-900.ttf'
-    id: fa_18
-    size: 18
-    glyphs: "\uF0C9\uF185\uF186\uF0C2\uF75F\uF73B\uF0E7\uF6C4\uF73D\uF740\uF2DC\uF72E\uF071"
-  - file: 'https://github.com/FortAwesome/Font-Awesome/raw/5.15.4/webfonts/fa-solid-900.ttf'
+    glyphs: "\uF1EB\uF053\uF054\uF0C9\uF185\uF0EB\uF04B\uF04C"
+  - file: 'fonts/fa-solid-900.ttf'
     id: fa_28
     size: 28
     glyphs: "\uF185\uF186\uF0C2\uF75F\uF73B\uF0E7\uF6C4\uF73D\uF740\uF2DC\uF72E\uF071"
-  - file: 'https://github.com/FortAwesome/Font-Awesome/raw/5.15.4/webfonts/fa-solid-900.ttf'
+  - file: 'fonts/fa-solid-900.ttf'
     id: fa_48
     size: 48
     glyphs: "\uF185\uF186\uF0C2\uF75F\uF73B\uF0E7\uF6C4\uF73D\uF740\uF2DC\uF72E\uF071"
@@ -139,6 +135,9 @@ globals:
   - id: brightness_level
     type: int
     initial_value: '0'   # 0=auto-dim, 1=100%, 2=50%, 3=25%
+  - id: auto_rotate
+    type: bool
+    initial_value: 'false'
 
 # ── Sensores físicos I²C ──────────────────────────────────────────────────────
 sensor:
@@ -201,7 +200,7 @@ sensor:
         - lvgl.label.update:
             id: lbl_s_co2
             text:
-              format: "%.0f ppm"
+              format: "%.0f"
               args: ['x']
         - lambda: |-
             lv_color_t col;
@@ -210,6 +209,7 @@ sensor:
             else if (x > 700) col = lv_color_hex(0xFFD600);
             else col = lv_color_hex(0x69FF47);
             lv_obj_set_style_text_color(id(lbl_s_co2), col, 0);
+            lv_obj_set_style_text_color(id(lbl_s_co2_unit), col, 0);
     temperature:
       name: "SCD4x Temp"
       id: scd4x_temp
@@ -247,8 +247,8 @@ sensor:
       - lvgl.label.update:
           id: lbl_wx_wind
           text:
-            format: "%.1f m/s"
-            args: ['x']
+            format: "%.1f km/h"
+            args: ['x * 3.6f']
 
   # PM2.5 calidad del aire
   - platform: homeassistant
@@ -303,8 +303,8 @@ sensor:
       - lvgl.label.update:
           id: lbl_fc0_wind
           text:
-            format: "%.1fm/s"
-            args: ['x']
+            format: "%.0fkm/h"
+            args: ['x * 3.6f']
 
   # ── Previsión +6h ──────────────────────────────────────────────────────
   - platform: homeassistant
@@ -335,8 +335,8 @@ sensor:
       - lvgl.label.update:
           id: lbl_fc1_wind
           text:
-            format: "%.1fm/s"
-            args: ['x']
+            format: "%.0fkm/h"
+            args: ['x * 3.6f']
 
   # ── Previsión día +1 (mañana) ──────────────────────────────────────────
   - platform: homeassistant
@@ -377,8 +377,8 @@ sensor:
       - lvgl.label.update:
           id: lbl_fc2_wind
           text:
-            format: "%.1fm/s"
-            args: ['x']
+            format: "%.0fkm/h"
+            args: ['x * 3.6f']
 
   # ── Previsión día +2 (pasado mañana) ─────────────────────────────────
   - platform: homeassistant
@@ -419,8 +419,8 @@ sensor:
       - lvgl.label.update:
           id: lbl_fc3_wind
           text:
-            format: "%.1fm/s"
-            args: ['x']
+            format: "%.0fkm/h"
+            args: ['x * 3.6f']
 
   # VWCE — precio desde Home Assistant
   - platform: homeassistant
@@ -460,7 +460,6 @@ text_sensor:
           else if (cond == "windy")            icon = "\uF72E";  // viento
           else if (cond == "windy-variant")    icon = "\uF72E";  // viento
           else if (cond == "exceptional")      icon = "\uF071";  // warning
-          lv_label_set_text(id(lbl_wx_icon), icon);
           lv_label_set_text(id(lbl_wx_icon_big), icon);
       # Color del icono según condición
       - lambda: |-
@@ -481,7 +480,6 @@ text_sensor:
           else
             col = lv_color_hex(0xFFD600);
           lv_obj_set_style_text_color(id(lbl_wx_icon_big), col, 0);
-          lv_obj_set_style_text_color(id(lbl_wx_icon), col, 0);
 
   # Descripción textual de la condición (en español)
   - platform: homeassistant
@@ -587,6 +585,16 @@ interval:
           char buf[6];
           snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.minute);
           lv_label_set_text(id(lbl_hora), buf);
+
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(auto_rotate);'
+          then:
+            - lvgl.page.next:
+                animation: MOVE_LEFT
+                time: 250ms
 
   - interval: 5s
     then:
@@ -698,10 +706,40 @@ lvgl:
   # ── Capa superior — flotante sin barra fija ─────────────────────────────
   top_layer:
     widgets:
+      # Boton play/pausa auto-rotacion
+      - button:
+          x: 190
+          y: 0
+          width: 24
+          height: 24
+          bg_opa: transp
+          border_width: 0
+          shadow_width: 0
+          on_click:
+            - lambda: 'id(auto_rotate) = !id(auto_rotate);'
+            - if:
+                condition:
+                  lambda: 'return id(auto_rotate);'
+                then:
+                  - lvgl.label.update:
+                      id: lbl_autoplay_icon
+                      text: "\uF04C"
+                else:
+                  - lvgl.label.update:
+                      id: lbl_autoplay_icon
+                      text: "\uF04B"
+          widgets:
+            - label:
+                id: lbl_autoplay_icon
+                align: CENTER
+                text: "\uF04B"
+                text_font: fa_14
+                text_color: 0x4FC3F7
+
       # Hora (siempre visible, top-right)
       - label:
           id: lbl_hora
-          x: 240
+          x: 217
           y: 5
           text: "--:--"
           text_font: montserrat_18
@@ -710,7 +748,7 @@ lvgl:
       # WiFi (siempre visible)
       - label:
           id: lbl_wifi_top
-          x: 295
+          x: 270
           y: 8
           text: "\uF1EB"
           text_font: fa_14
@@ -809,6 +847,12 @@ lvgl:
                 call.set_transition_length(200);
                 call.perform();
                 id(screen_dimmed) = false;
+          widgets:
+            - label:
+                align: CENTER
+                text: "\uF0EB"
+                text_font: fa_14
+                text_color: 0xFFD600
 
   # ════════════════════════════════════════════════════════════════════════════
   #  PAGINAS
@@ -858,14 +902,6 @@ lvgl:
                   text_font: montserrat_14
                   text_color: 0x00BCD4
 
-              # Mini icono meteo junto a localizacion
-              - label:
-                  id: lbl_wx_icon
-                  x: 100
-                  y: 5
-                  text: "\uF185"
-                  text_font: fa_18
-                  text_color: 0xFFD600
 
               # ── Zona hero: icono grande + temperatura ────────────────────
               - label:
@@ -885,7 +921,7 @@ lvgl:
                   text_color: 0x00E5FF
 
               - label:
-                  x: 195
+                  x: 158
                   y: 34
                   text: "\xB0C"
                   text_font: montserrat_22
@@ -896,7 +932,7 @@ lvgl:
                    id: lbl_wx_cond_text
                    x: 10
                    y: 76
-                   width: 180
+                   width: 165
                    text: "---"
                    text_font: montserrat_14
                    text_color: 0x78909C
@@ -914,118 +950,113 @@ lvgl:
                   border_width: 0
                   clickable: false
 
-              # ── Grid 3x2: sensores interiores + meteo exterior ──────────
-              # Fila 1: CO2 | T.INT
+              # ── Exterior: VIENTO + PM (esquina superior derecha) ────────
               - label:
-                  x: 20
-                  y: 102
-                  text: "CO2"
-                  text_font: montserrat_14
-                  text_color: 0x4FC3F7
-              - label:
-                  id: lbl_s_co2
-                  x: 20
-                  y: 118
-                  text: "--- ppm"
-                  text_font: montserrat_18
-                  text_color: 0x69FF47
-
-              - label:
-                  x: 170
-                  y: 102
-                  text: "T.INT"
-                  text_font: montserrat_14
-                  text_color: 0x4FC3F7
-              - label:
-                  id: lbl_s_temp
-                  x: 170
-                  y: 118
-                  text: "--.-\xB0C"
-                  text_font: montserrat_18
-                  text_color: 0xFFFFFF
-
-              # Fila 2: HUM | PRESION
-              - label:
-                  x: 20
-                  y: 140
-                  text: "HUM"
-                  text_font: montserrat_14
-                  text_color: 0x4FC3F7
-              - label:
-                  id: lbl_s_hum
-                  x: 20
-                  y: 156
-                  text: "--%"
-                  text_font: montserrat_18
-                  text_color: 0xFFFFFF
-
-              - label:
-                  x: 170
-                  y: 140
-                  text: "PRESION"
-                  text_font: montserrat_14
-                  text_color: 0x4FC3F7
-              - label:
-                  id: lbl_s_press
-                  x: 170
-                  y: 156
-                  text: "---- hPa"
-                  text_font: montserrat_18
-                  text_color: 0xFFFFFF
-
-              # Separador fino
-              - obj:
-                  x: 10
-                  y: 178
-                  width: 300
-                  height: 1
-                  bg_color: 0x1A2840
-                  bg_opa: cover
-                  radius: 0
-                  border_width: 0
-                  clickable: false
-
-              # Fila 3: VIENTO | PM2.5/PM10
-              - label:
-                  x: 20
-                  y: 184
+                  x: 196
+                  y: 30
                   text: "VIENTO"
                   text_font: montserrat_14
                   text_color: 0x4FC3F7
               - label:
                   id: lbl_wx_wind
-                  x: 20
-                  y: 200
-                  text: "-.- m/s"
-                  text_font: montserrat_18
+                  x: 258
+                  y: 30
+                  text: "-.- km/h"
+                  text_font: montserrat_14
                   text_color: 0x69FF47
 
               - label:
-                  x: 170
-                  y: 184
+                  x: 196
+                  y: 50
                   text: "PM2.5"
                   text_font: montserrat_14
                   text_color: 0x78909C
               - label:
                   id: lbl_pm25_value
-                  x: 224
-                  y: 184
+                  x: 248
+                  y: 50
                   text: "--"
                   text_font: montserrat_14
                   text_color: 0x69FF47
               - label:
-                  x: 170
-                  y: 200
+                  x: 196
+                  y: 68
                   text: "PM10"
                   text_font: montserrat_14
                   text_color: 0x78909C
               - label:
                   id: lbl_pm10_value
-                  x: 224
-                  y: 200
+                  x: 248
+                  y: 68
                   text: "--"
                   text_font: montserrat_14
                   text_color: 0x69FF47
+
+              # ── Grid 2x2: sensores interiores ────────────────────────────
+              # Fila 1: CO2 | T.INT
+              - label:
+                  x: 45
+                  y: 109
+                  text: "CO2"
+                  text_font: montserrat_14
+                  text_color: 0x4FC3F7
+              - label:
+                  id: lbl_s_co2
+                  x: 45
+                  y: 125
+                  text: "---"
+                  text_font: montserrat_28
+                  text_color: 0x69FF47
+              - label:
+                  id: lbl_s_co2_unit
+                  x: 113
+                  y: 140
+                  text: "ppm"
+                  text_font: montserrat_14
+                  text_color: 0x69FF47
+
+              - label:
+                  x: 190
+                  y: 109
+                  text: "T.INT"
+                  text_font: montserrat_14
+                  text_color: 0x4FC3F7
+              - label:
+                  id: lbl_s_temp
+                  x: 190
+                  y: 125
+                  text: "--.-\xB0C"
+                  text_font: montserrat_28
+                  text_color: 0xFFFFFF
+
+              # Fila 2: HUM | PRESION
+              - label:
+                  x: 45
+                  y: 163
+                  text: "HUM"
+                  text_font: montserrat_14
+                  text_color: 0x4FC3F7
+              - label:
+                  id: lbl_s_hum
+                  x: 45
+                  y: 179
+                  text: "--%"
+                  text_font: montserrat_28
+                  text_color: 0xFFFFFF
+
+              - label:
+                  x: 190
+                  y: 163
+                  text: "PRESION"
+                  text_font: montserrat_14
+                  text_color: 0x4FC3F7
+              - label:
+                  id: lbl_s_press
+                  x: 190
+                  y: 179
+                  text: "---- hPa"
+                  text_font: montserrat_28
+                  text_color: 0xFFFFFF
 
     # ══════ PAGINA 2: PREVISION — pronostico meteorologico ══════
     - id: page_prognoza
@@ -1113,7 +1144,7 @@ lvgl:
                         id: lbl_fc0_wind
                         x: 218
                         y: 5
-                        text: "-m/s"
+                        text: "-km/h"
                         text_font: montserrat_14
                         text_color: 0x69FF47
 
@@ -1160,7 +1191,7 @@ lvgl:
                         id: lbl_fc1_wind
                         x: 218
                         y: 5
-                        text: "-m/s"
+                        text: "-km/h"
                         text_font: montserrat_14
                         text_color: 0x69FF47
 
@@ -1214,7 +1245,7 @@ lvgl:
                         id: lbl_fc2_wind
                         x: 218
                         y: 5
-                        text: "-m/s"
+                        text: "-km/h"
                         text_font: montserrat_14
                         text_color: 0x69FF47
 
@@ -1268,7 +1299,7 @@ lvgl:
                         id: lbl_fc3_wind
                         x: 218
                         y: 5
-                        text: "-m/s"
+                        text: "-km/h"
                         text_font: montserrat_14
                         text_color: 0x69FF47
 
