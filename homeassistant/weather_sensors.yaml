@@ -16,6 +16,11 @@
 #
 # El atributo `forecast` de la entidad weather está deprecado desde HA 2024.x.
 # Esta versión usa la acción weather.get_forecasts, que es la forma correcta.
+#
+# Nota sobre home_forecast_Xh_hum y home_forecast_dX_hum:
+#   Estos sensores devuelven el campo `precipitation` (mm previstos),
+#   NO la humedad relativa (%). El campo precipitation es el más útil
+#   para mostrar en una pantalla de previsión del tiempo.
 # ============================================================================
 
 # ── Bloque 1: Condición actual ────────────────────────────────────────────────
@@ -109,7 +114,7 @@
       unit_of_measurement: "%"
       state_class: measurement
       state: >
-        {{ fc_h['weather.casa'].forecast[3].precipitation_probability | float(0) | round(0) }}
+        {{ fc_h['weather.casa'].forecast[3].precipitation | float(0) | round(1) }}
 
     - name: home_forecast_3h_wind
       unique_id: home_forecast_3h_wind
@@ -136,7 +141,7 @@
       unit_of_measurement: "%"
       state_class: measurement
       state: >
-        {{ fc_h['weather.casa'].forecast[6].precipitation_probability | float(0) | round(0) }}
+        {{ fc_h['weather.casa'].forecast[6].precipitation | float(0) | round(1) }}
 
     - name: home_forecast_6h_wind
       unique_id: home_forecast_6h_wind
@@ -189,7 +194,7 @@
       unit_of_measurement: "%"
       state_class: measurement
       state: >
-        {{ fc_d['weather.casa'].forecast[1].precipitation_probability | float(0) | round(0) }}
+        {{ fc_d['weather.casa'].forecast[1].precipitation | float(0) | round(1) }}
 
     - name: home_forecast_d1_wind
       unique_id: home_forecast_d1_wind
@@ -231,7 +236,7 @@
       unit_of_measurement: "%"
       state_class: measurement
       state: >
-        {{ fc_h['weather.casa'].forecast[0].precipitation_probability | default(0) }}
+        {{ fc_d['weather.casa'].forecast[2].precipitation | float(0) | round(1) }}
 
     - name: home_forecast_d2_wind
       unique_id: home_forecast_d2_wind
@@ -252,3 +257,9 @@
         {% set ts = fc_d['weather.casa'].forecast[2].datetime %}
         {{ dias[as_datetime(ts).weekday()] }}
 
+    - name: home_forecast_today_wind
+      unique_id: home_forecast_today_wind
+      unit_of_measurement: "m/s"
+      state_class: measurement
+      state: >
+        {{ (fc_d['weather.casa'].forecast[0].wind_speed | float(0) / 3.6) | round(1) }}

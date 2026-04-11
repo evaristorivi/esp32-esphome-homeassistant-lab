@@ -50,7 +50,7 @@ font:
   - file: 'fonts/fa-solid-900.ttf'
     id: fa_14
     size: 14
-    glyphs: "\uF1EB\uF053\uF054\uF0C9\uF185\uF0EB\uF04B\uF04C"
+    glyphs: "\uF1EB\uF053\uF054\uF0C9\uF185\uF0EB\uF04B\uF04C\uF011"
   - file: 'fonts/fa-solid-900.ttf'
     id: fa_28
     size: 28
@@ -126,6 +126,9 @@ globals:
     initial_value: '0'
   - id: auto_rotate
     type: bool
+    initial_value: 'true'
+  - id: energy_save_disabled
+    type: bool
     initial_value: 'false'
 
 # ── Sensores via Home Assistant ───────────────────────────────────────────────
@@ -167,6 +170,7 @@ sensor:
           else col = lv_color_hex(0x69FF47);
           lv_obj_set_style_text_color(id(lbl_s_co2), col, 0);
           lv_obj_set_style_text_color(id(lbl_s_co2_unit), col, 0);
+          lv_obj_set_x(id(lbl_s_co2_unit), lv_obj_get_x(id(lbl_s_co2)) + lv_obj_get_width(id(lbl_s_co2)) + 3);
 
   - platform: homeassistant
     id: s_int_temp
@@ -198,7 +202,7 @@ sensor:
       - lvgl.label.update:
           id: lbl_s_press
           text:
-            format: "%.0f hPa"
+            format: "%.0f"
             args: ['x']
 
   - platform: homeassistant
@@ -253,11 +257,11 @@ sensor:
       - lvgl.label.update:
           id: lbl_fc0_hum
           text:
-            format: "%.0f%%"
+            format: "%.1fmm"
             args: ['x']
   - platform: homeassistant
     id: fc_3h_wind
-    entity_id: sensor.${location}_forecast_3h_wind
+    entity_id: sensor.${location}_forecast_today_wind
     internal: true
     on_value:
       - lvgl.label.update:
@@ -285,11 +289,11 @@ sensor:
       - lvgl.label.update:
           id: lbl_fc1_hum
           text:
-            format: "%.0f%%"
+            format: "%.1fmm"
             args: ['x']
   - platform: homeassistant
     id: fc_6h_wind
-    entity_id: sensor.${location}_forecast_6h_wind
+    entity_id: sensor.${location}_forecast_today_wind
     internal: true
     on_value:
       - lvgl.label.update:
@@ -327,7 +331,7 @@ sensor:
       - lvgl.label.update:
           id: lbl_fc2_hum
           text:
-            format: "%.0f%%"
+            format: "%.1fmm"
             args: ['x']
   - platform: homeassistant
     id: fc_d1_wind
@@ -369,7 +373,7 @@ sensor:
       - lvgl.label.update:
           id: lbl_fc3_hum
           text:
-            format: "%.0f%%"
+            format: "%.1fmm"
             args: ['x']
   - platform: homeassistant
     id: fc_d2_wind
@@ -627,11 +631,15 @@ lvgl:
   on_idle:
     timeout: 60s
     then:
-      - lambda: 'id(screen_dimmed) = true;'
-      - light.turn_on:
-          id: backlight
-          brightness: 15%
-          transition_length: 3s
+      - if:
+          condition:
+            lambda: 'return !id(energy_save_disabled);'
+          then:
+            - lambda: 'id(screen_dimmed) = true;'
+            - light.turn_on:
+                id: backlight
+                brightness: 15%
+                transition_length: 3s
 
   style_definitions:
     # Tarjeta con sombra (para VWCE)
@@ -662,7 +670,7 @@ lvgl:
     widgets:
       # Boton play/pausa auto-rotacion
       - button:
-          x: 190
+          x: 247
           y: 0
           width: 24
           height: 24
@@ -686,24 +694,24 @@ lvgl:
             - label:
                 id: lbl_autoplay_icon
                 align: CENTER
-                text: "\uF04B"
+                text: "\uF04C"
                 text_font: fa_14
                 text_color: 0x4FC3F7
 
-      # Hora (siempre visible, top-right)
+      # Hora — centrada en zona izquierda (top-left)
       - label:
           id: lbl_hora
-          x: 217
+          x: 120
           y: 5
           text: "--:--"
           text_font: montserrat_18
           text_color: 0xFFFFFF
 
-      # WiFi (siempre visible)
+      # WiFi (siempre visible) — al final de los iconos
       - label:
           id: lbl_wifi_top
-          x: 270
-          y: 8
+          x: 296
+          y: 5
           text: "\uF1EB"
           text_font: fa_14
           text_color: 0x4ADE80
@@ -783,12 +791,43 @@ lvgl:
           border_width: 0
           clickable: false
 
-      # Boton brillo (esquina superior derecha)
+      # Boton desactivar ahorro de energia
       - button:
-          x: 288
+          id: btn_energy_save
+          x: 220
           y: 0
-          width: 32
-          height: 28
+          width: 26
+          height: 24
+          bg_opa: transp
+          border_width: 0
+          shadow_width: 0
+          on_click:
+            - lambda: |-
+                id(energy_save_disabled) = !id(energy_save_disabled);
+                if (id(energy_save_disabled)) {
+                  lv_obj_set_style_text_color(id(lbl_energy_save_icon), lv_color_hex(0xFF4444), 0);
+                  auto call = id(backlight).turn_on();
+                  call.set_brightness(1.0f);
+                  call.set_transition_length(200);
+                  call.perform();
+                  id(screen_dimmed) = false;
+                } else {
+                  lv_obj_set_style_text_color(id(lbl_energy_save_icon), lv_color_hex(0x446688), 0);
+                }
+          widgets:
+            - label:
+                id: lbl_energy_save_icon
+                align: CENTER
+                text: "\uF011"
+                text_font: fa_14
+                text_color: 0x446688
+
+      # Boton brillo
+      - button:
+          x: 272
+          y: 0
+          width: 26
+          height: 24
           bg_opa: transp
           border_width: 0
           shadow_width: 0
@@ -868,15 +907,17 @@ lvgl:
 
               - label:
                   id: lbl_wx_temp
-                  x: 80
-                  y: 26
+                  x: 70
+                  y: 28
+                  width: 90
+                  text_align: RIGHT
                   text: "--.-"
-                  text_font: montserrat_48
+                  text_font: montserrat_40
                   text_color: 0x00E5FF
 
               - label:
-                  x: 158
-                  y: 34
+                  x: 162
+                  y: 32
                   text: "\xB0C"
                   text_font: montserrat_22
                   text_color: 0x4FC3F7
@@ -904,44 +945,44 @@ lvgl:
                   border_width: 0
                   clickable: false
 
-              # ── Exterior: VIENTO + PM (esquina superior derecha) ────────
+              # ── Exterior: VIENTO (apilado) + PM ─────────────────────────
               - label:
-                  x: 196
-                  y: 30
+                  x: 208
+                  y: 26
                   text: "VIENTO"
                   text_font: montserrat_14
                   text_color: 0x4FC3F7
               - label:
                   id: lbl_wx_wind
-                  x: 258
-                  y: 30
+                  x: 208
+                  y: 42
                   text: "-.- km/h"
-                  text_font: montserrat_14
+                  text_font: montserrat_16
                   text_color: 0x69FF47
 
               - label:
-                  x: 196
-                  y: 50
+                  x: 208
+                  y: 62
                   text: "PM2.5"
                   text_font: montserrat_14
                   text_color: 0x78909C
               - label:
                   id: lbl_pm25_value
-                  x: 248
-                  y: 50
+                  x: 260
+                  y: 62
                   text: "--"
                   text_font: montserrat_14
                   text_color: 0x69FF47
               - label:
-                  x: 196
-                  y: 68
+                  x: 208
+                  y: 78
                   text: "PM10"
                   text_font: montserrat_14
                   text_color: 0x78909C
               - label:
                   id: lbl_pm10_value
-                  x: 248
-                  y: 68
+                  x: 260
+                  y: 78
                   text: "--"
                   text_font: montserrat_14
                   text_color: 0x69FF47
@@ -963,8 +1004,8 @@ lvgl:
                   text_color: 0x69FF47
               - label:
                   id: lbl_s_co2_unit
-                  x: 113
-                  y: 140
+                  x: 103
+                  y: 142
                   text: "ppm"
                   text_font: montserrat_14
                   text_color: 0x69FF47
@@ -1008,9 +1049,15 @@ lvgl:
                   id: lbl_s_press
                   x: 190
                   y: 179
-                  text: "---- hPa"
+                  text: "----"
                   text_font: montserrat_28
                   text_color: 0xFFFFFF
+              - label:
+                  x: 258
+                  y: 195
+                  text: "hPa"
+                  text_font: montserrat_14
+                  text_color: 0x78909C
 
     # ══════ PAGINA 2: PREVISION — pronostico meteorologico ══════
     - id: page_prognoza
@@ -1059,7 +1106,7 @@ lvgl:
               - obj:
                   styles: style_fc_row
                   x: 20
-                  y: 30
+                  y: 38
                   width: 280
                   height: 38
                   clickable: false
@@ -1089,9 +1136,9 @@ lvgl:
                         text_color: 0xFFFFFF
                     - label:
                         id: lbl_fc0_hum
-                        x: 175
+                        x: 155
                         y: 5
-                        text: "--%"
+                        text: "--mm"
                         text_font: montserrat_14
                         text_color: 0x90CAF9
                     - label:
@@ -1106,7 +1153,7 @@ lvgl:
               - obj:
                   styles: style_fc_row
                   x: 20
-                  y: 74
+                  y: 82
                   width: 280
                   height: 38
                   clickable: false
@@ -1136,9 +1183,9 @@ lvgl:
                         text_color: 0xFFFFFF
                     - label:
                         id: lbl_fc1_hum
-                        x: 175
+                        x: 155
                         y: 5
-                        text: "--%"
+                        text: "--mm"
                         text_font: montserrat_14
                         text_color: 0x90CAF9
                     - label:
@@ -1153,7 +1200,7 @@ lvgl:
               - obj:
                   styles: style_fc_row
                   x: 20
-                  y: 118
+                  y: 126
                   width: 280
                   height: 38
                   clickable: false
@@ -1190,9 +1237,9 @@ lvgl:
                         text_color: 0x78909C
                     - label:
                         id: lbl_fc2_hum
-                        x: 175
+                        x: 155
                         y: 5
-                        text: "--%"
+                        text: "--mm"
                         text_font: montserrat_14
                         text_color: 0x90CAF9
                     - label:
@@ -1207,7 +1254,7 @@ lvgl:
               - obj:
                   styles: style_fc_row
                   x: 20
-                  y: 162
+                  y: 170
                   width: 280
                   height: 38
                   clickable: false
@@ -1244,9 +1291,9 @@ lvgl:
                         text_color: 0x78909C
                     - label:
                         id: lbl_fc3_hum
-                        x: 175
+                        x: 155
                         y: 5
-                        text: "--%"
+                        text: "--mm"
                         text_font: montserrat_14
                         text_color: 0x90CAF9
                     - label:
@@ -1302,8 +1349,8 @@ lvgl:
 
               # Badge XETRA
               - label:
-                  align: TOP_MID
-                  y: 16
+                  align: BOTTOM_MID
+                  y: -20
                   text: "XETRA"
                   text_font: montserrat_14
                   text_color: 0x808090
