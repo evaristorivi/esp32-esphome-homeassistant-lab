@@ -160,6 +160,7 @@ La barra superior ocupa los 24 px superiores de la pantalla y tiene dos zonas:
   - T.INT (°C)
   - HUM (%)
   - Presión (hPa) — número grande, "hPa" en fuente pequeña
+- **Reset CO₂** (solo `cyd_weather.yaml`): mantener pulsado el área CO₂ ~1 s → diálogo de confirmación → **Sí** ejecuta `scd4x.factory_reset`
 
 ### Página 2 — Previsión
 
@@ -325,7 +326,7 @@ esphome run esphome/cyd_weather_dummy.yaml --device cyd-weather-dummy.local
 
 ### Proyecto 12: CYD estación meteorológica con sensores I²C (`cyd_weather.yaml`)
 
-Igual que el Proyecto 11 pero con **sensores I²C físicos conectados al CN1** para los datos interiores (CO₂, temperatura, humedad, presión). Los datos meteorológicos exteriores siguen viniendo de HA.
+Igual que el Proyecto 11 pero con **sensores I²C físicos conectados al CN1** para los datos interiores (CO₂, temperatura, humedad, presión). Los datos meteorológicos exteriores siguen viniendo de HA. Permite tener dos estaciones independientes en habitaciones distintas sin que ninguna dependa de la otra.
 
 | Dato | Origen |
 |---|---|
@@ -334,6 +335,10 @@ Igual que el Proyecto 11 pero con **sensores I²C físicos conectados al CN1** p
 | CO₂, T interior, H interior, Presión | **Sensores I²C en CN1** (directos) |
 | PM2.5 / PM10 | `air_quality_sensor.yaml` en HA (Open-Meteo) |
 | VWCE | Desde HA (`sensor.vwce_precio_yahoo`) |
+
+#### Reset de calibración CO₂
+
+Mantener pulsado el área del valor CO₂ en pantalla (~1 s) muestra un diálogo de confirmación: **"¿Resetear CO₂?"**. Pulsando **Sí** se ejecuta `scd4x.factory_reset` — borra la calibración acumulada y reinicia el ASC desde cero. Útil al cambiar el sensor de habitación o si las lecturas se han desviado. Pulsando **No** el diálogo se cierra sin cambios.
 
 **Requiere** tanto `weather_sensors.yaml` como `air_quality_sensor.yaml` configurados en Home Assistant.
 

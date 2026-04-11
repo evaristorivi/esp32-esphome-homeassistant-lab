@@ -192,6 +192,7 @@ sensor:
 
   # SCD40 — CO₂ interior
   - platform: scd4x
+    id: scd4x_sensor
     address: 0x62
     update_interval: 30s
     ambient_pressure_compensation_source: bmp280_press
@@ -868,6 +869,71 @@ lvgl:
                 text_font: fa_14
                 text_color: 0x446688
 
+      # Dialogo confirmacion reset CO2 (oculto por defecto)
+      - obj:
+          id: dlg_co2_reset
+          x: 30
+          y: 65
+          width: 260
+          height: 110
+          bg_color: 0x1A2535
+          bg_opa: cover
+          radius: 8
+          border_width: 1
+          border_color: 0xFF4444
+          shadow_width: 0
+          hidden: true
+          widgets:
+            - label:
+                x: 0
+                y: 10
+                width: 260
+                text_align: CENTER
+                text: "Resetear CO2?"
+                text_font: montserrat_18
+                text_color: 0xFF4444
+            - label:
+                x: 0
+                y: 36
+                width: 260
+                text_align: CENTER
+                text: "Borra calibracion acumulada"
+                text_font: montserrat_14
+                text_color: 0x78909C
+            - button:
+                x: 20
+                y: 65
+                width: 90
+                height: 32
+                bg_color: 0xFF4444
+                border_width: 0
+                shadow_width: 0
+                on_click:
+                  - lambda: lv_obj_add_flag(id(dlg_co2_reset), LV_OBJ_FLAG_HIDDEN);
+                  - scd4x.factory_reset: scd4x_sensor
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "Si"
+                      text_font: montserrat_16
+                      text_color: 0xFFFFFF
+            - button:
+                x: 150
+                y: 65
+                width: 90
+                height: 32
+                bg_color: 0x2A3A50
+                border_width: 0
+                shadow_width: 0
+                on_click:
+                  - lambda: lv_obj_add_flag(id(dlg_co2_reset), LV_OBJ_FLAG_HIDDEN);
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "No"
+                      text_font: montserrat_14
+                      text_color: 0xFFFFFF
+
       # Boton brillo
       - button:
           x: 272
@@ -1034,6 +1100,18 @@ lvgl:
                   text_color: 0x69FF47
 
               # ── Grid 2x2: sensores interiores ────────────────────────────
+              # Boton largo sobre zona CO2 → dialogo reset
+              - button:
+                  x: 40
+                  y: 103
+                  width: 155
+                  height: 58
+                  bg_opa: transp
+                  border_width: 0
+                  shadow_width: 0
+                  on_long_press:
+                    - lambda: lv_obj_clear_flag(id(dlg_co2_reset), LV_OBJ_FLAG_HIDDEN);
+
               # Fila 1: CO2 | T.INT
               - label:
                   x: 45
