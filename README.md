@@ -113,6 +113,65 @@ El `configuration.yaml` incluido en el repositorio ya tiene las tres líneas con
 
 ## Primeros pasos
 
+### Inicio rápido en 15 minutos
+
+Este flujo está pensado para principiantes y para llegar a una primera pantalla funcionando sin pelearte con detalles avanzados.
+
+### 1. Prepara Home Assistant (5 min)
+
+1. Copia estos archivos de `homeassistant/` a tu carpeta de configuración de HA:
+   - `configuration.yaml`
+   - `vwce_sensor.yaml`
+   - `air_quality_sensor.yaml`
+   - `weather_sensors.yaml`
+2. Copia `homeassistant/secrets.yaml.example` a `secrets.yaml` y rellena `air_quality_url` con tus coordenadas.
+3. Reinicia Home Assistant.
+4. Verifica en **Herramientas de desarrollador → Estados** solo las entidades que aplique según tu YAML:
+   - Si usas proyectos con VWCE vía HA (`*_dummy` y `cyd_weather*`): `sensor.vwce_precio_yahoo`.
+   - Si usas `cyd_weather.yaml` o `cyd_weather_dummy.yaml`: `sensor.<location_name>_temperatura` (por ejemplo `sensor.home_temperatura`).
+
+### 2. Instala ESPHome (2 min)
+
+```sh
+pip install esphome
+```
+
+### 3. Crea `esphome/secrets.yaml` (2 min)
+
+Copia `esphome/secrets.yaml.example` a `esphome/secrets.yaml` y rellena:
+
+```yaml
+wifi_ssid: "TuRedWiFi"
+wifi_password: "TuContraseña"
+ota_password: "una_clave_segura"
+api_encryption_key: "clave_base64_de_32_bytes"
+
+# Solo para cyd_weather.yaml y cyd_weather_dummy.yaml
+location_name: "home"          # prefijo de entidades HA: sensor.home_temperatura, etc.
+location_display: "Mi Casa"    # texto mostrado en la pantalla
+```
+
+### 4. Flashea un YAML sencillo (3 min)
+
+Recomendado para empezar:
+
+1. Sin sensores físicos en CYD: `esphome/cyd_weather_dummy.yaml`
+2. Con sensores I²C en CYD: `esphome/cyd_weather.yaml`
+
+```sh
+# Primera carga por USB
+esphome run esphome/cyd_weather_dummy.yaml --device COMx
+
+# Siguientes cargas por WiFi (OTA)
+esphome run esphome/cyd_weather_dummy.yaml --device cyd-weather-dummy.local
+```
+
+### 5. Comprueba que todo está bien (3 min)
+
+1. La pantalla muestra hora, icono wifi y datos.
+2. En HA el dispositivo aparece como integrado por ESPHome.
+3. Si algún dato sale `--`, revisa que la entidad exista en HA con el mismo nombre.
+
 ### 1. Instala ESPHome
 
 ```sh
@@ -132,6 +191,8 @@ wifi_ssid: "TuRedWiFi"
 wifi_password: "TuContraseña"
 ota_password: "una_clave_segura"
 api_encryption_key: "clave_base64_de_32_bytes"
+location_name: "home"       # solo cyd_weather*.yaml
+location_display: "Mi Casa" # solo cyd_weather*.yaml
 ```
 
 Para generar la clave de cifrado:
@@ -141,6 +202,8 @@ openssl rand -base64 32
 ```
 
 > `secrets.yaml` está en `.gitignore` — nunca se sube al repositorio. Los valores `!secret` se leen de este archivo, así puedes publicar los YAML sin exponer contraseñas.
+
+> En `cyd_weather.yaml` y `cyd_weather_dummy.yaml` la zona horaria está definida en `timezone: "Europe/Madrid"`. Si no vives en esa zona, cámbiala en esos YAML.
 
 ### 3. Instala los drivers USB (primera vez)
 
@@ -182,6 +245,65 @@ El ESP32 siempre conectado — evita latencia y que HA lo marque como *unavailab
 ### `logger: level: DEBUG`
 
 Envía mensajes de diagnóstico por el puerto serie y desde la UI web de ESPHome. En un dispositivo estable se puede bajar a `INFO` o `WARNING` para reducir ruido.
+
+---
+
+## Errores típicos y solución
+
+### `Entity not found: sensor.home_*` en CYD Weather
+
+Causa habitual: `location_name` no coincide con el prefijo real de tus sensores en Home Assistant.
+
+Solución:
+1. Mira en HA el nombre real de una entidad (por ejemplo `sensor.mi_casa_temperatura`).
+2. Pon ese prefijo en `esphome/secrets.yaml`: `location_name: "mi_casa"`.
+3. Recompila y sube por OTA.
+
+### `Entity not found: weather.casa`
+
+Causa: tu entidad weather no se llama `weather.casa`.
+
+Solución:
+1. Abre `homeassistant/weather_sensors.yaml`.
+2. Sustituye `weather.casa` por tu entidad real (por ejemplo `weather.home`).
+3. Reinicia Home Assistant.
+
+### `Invalid encryption key` en ESPHome API
+
+Causa: `api_encryption_key` no tiene formato base64 de 32 bytes.
+
+Solución:
+```sh
+openssl rand -base64 32
+```
+Pega el resultado en `esphome/secrets.yaml`.
+
+### No aparece puerto COM / `/dev/ttyUSB*`
+
+Causa: falta driver USB-UART.
+
+Solución:
+1. Instala driver CP2102 y/o CH340/CH341 (tabla de drivers arriba).
+2. Desconecta y reconecta la placa.
+3. Reintenta `esphome run ... --device COMx`.
+
+### No entra en modo flash por USB (primera vez)
+
+Causa: la placa no está en modo bootloader.
+
+Solución:
+1. Mantén pulsado **BOOT** al conectar USB.
+2. Suelta **BOOT** cuando el puerto aparezca.
+3. Ejecuta de nuevo el comando `esphome run`.
+
+### La hora en pantalla está mal
+
+Causa típica: zona horaria no ajustada.
+
+Solución:
+1. Corrige `timezone:` en `cyd_weather.yaml` o `cyd_weather_dummy.yaml`.
+2. Recompila y sube OTA.
+3. Verifica también la zona horaria de Home Assistant.
 
 ---
 

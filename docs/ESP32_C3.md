@@ -133,7 +133,7 @@ Variante para cuando ya tienes HA con el sensor REST de VWCE configurado. El ESP
 Añade en `homeassistant/configuration.yaml`:
 
 ```yaml
-sensor: !include homeassistant/vwce_sensor.yaml
+sensor: !include vwce_sensor.yaml
 ```
 
 El archivo `vwce_sensor.yaml` contiene el sensor REST listo para usar.
@@ -374,7 +374,7 @@ La ASC tarda ~7 días en estabilizarse de nuevo.
 |---|---|---|
 | Rotación | Automática cada 6 s | Automática + pausa al girar |
 | Hardware extra | Ninguno | KY-040 (3 pines GPIO) |
-| Reset calibración CO₂ | — | Pulsación 5 s |
+| Reset calibración CO₂ | — | Pulsación 10 s |
 
 Componentes ESPHome: `rotary_encoder` (giro CW/CCW navega 0–4 con índice manual) + `binary_sensor` GPIO (pulsador activo-bajo, anti-rebote 10 ms, lógica en `on_release`).
 

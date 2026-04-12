@@ -236,6 +236,17 @@ air_quality_url: "https://air-quality-api.open-meteo.com/v1/air-quality?latitude
 
 `weather_sensors.yaml` usa `weather.casa` como entidad base. Si en tu instalación la entidad tiene otro nombre (p.ej. `weather.home` o `weather.mi_ciudad`), actualiza todas las referencias en el archivo.
 
+### `esphome/secrets.yaml` para proyectos Weather (P11 y P12)
+
+Además de WiFi/OTA/API, `cyd_weather_dummy.yaml` y `cyd_weather.yaml` usan dos claves extra en `esphome/secrets.yaml`:
+
+```yaml
+location_name: "home"       # prefijo de entidades HA: sensor.home_temperatura, etc.
+location_display: "Mi Casa" # texto visible en la barra superior
+```
+
+> En ambos YAML la hora está fijada a `timezone: "Europe/Madrid"`. Si estás en otra zona horaria, cámbiala en el propio YAML antes de flashear.
+
 ### Diferencias respecto al ESP32-C3
 
 | | ESP32-C3 (Proyectos 1–7) | CYD (Proyectos 8–10) |

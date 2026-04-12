@@ -170,7 +170,8 @@ sensor:
           else col = lv_color_hex(0x69FF47);
           lv_obj_set_style_text_color(id(lbl_s_co2), col, 0);
           lv_obj_set_style_text_color(id(lbl_s_co2_unit), col, 0);
-          lv_obj_set_x(id(lbl_s_co2_unit), lv_obj_get_x(id(lbl_s_co2)) + lv_obj_get_width(id(lbl_s_co2)) + 3);
+          lv_obj_update_layout(id(lbl_s_co2));
+          lv_obj_align_to(id(lbl_s_co2_unit), id(lbl_s_co2), LV_ALIGN_OUT_RIGHT_BOTTOM, 8, 0);
 
   - platform: homeassistant
     id: s_int_temp
