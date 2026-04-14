@@ -113,11 +113,7 @@ El `configuration.yaml` incluido en el repositorio ya tiene las tres líneas con
 
 ## Primeros pasos
 
-### Inicio rápido en 15 minutos
-
-Este flujo está pensado para principiantes y para llegar a una primera pantalla funcionando sin pelearte con detalles avanzados.
-
-### 1. Prepara Home Assistant (5 min)
+### 1. Prepara Home Assistant
 
 1. Copia estos archivos de `homeassistant/` a tu carpeta de configuración de HA:
    - `configuration.yaml`
@@ -130,15 +126,21 @@ Este flujo está pensado para principiantes y para llegar a una primera pantalla
    - Si usas proyectos con VWCE vía HA (`*_dummy` y `cyd_weather*`): `sensor.vwce_precio_yahoo`.
    - Si usas `cyd_weather.yaml` o `cyd_weather_dummy.yaml`: `sensor.<location_name>_temperatura` (por ejemplo `sensor.home_temperatura`).
 
-### 2. Instala ESPHome (2 min)
+### 2. Instala ESPHome
+
+Necesitas **Python 3.8+** y **pip**. También puedes usar el add-on oficial de ESPHome en Home Assistant.
 
 ```sh
 pip install esphome
 ```
 
-### 3. Crea `esphome/secrets.yaml` (2 min)
+Documentación oficial: [https://esphome.io/guides/installing_esphome.html](https://esphome.io/guides/installing_esphome.html)
 
-Copia `esphome/secrets.yaml.example` a `esphome/secrets.yaml` y rellena:
+> Instala ESPHome en el equipo que vaya a conectar el ESP32 por USB para la primera flash (tu PC, una Raspberry Pi, etc.). Las actualizaciones posteriores van por WiFi (OTA), así que después es irrelevante dónde esté instalado.
+
+### 3. Crea `esphome/secrets.yaml`
+
+Copia `esphome/secrets.yaml.example` a `esphome/secrets.yaml` y rellena tus datos:
 
 ```yaml
 wifi_ssid: "TuRedWiFi"
@@ -151,50 +153,6 @@ location_name: "home"          # prefijo de entidades HA: sensor.home_temperatur
 location_display: "Mi Casa"    # texto mostrado en la pantalla
 ```
 
-### 4. Flashea un YAML sencillo (3 min)
-
-Recomendado para empezar:
-
-1. Sin sensores físicos en CYD: `esphome/cyd_weather_dummy.yaml`
-2. Con sensores I²C en CYD: `esphome/cyd_weather.yaml`
-
-```sh
-# Primera carga por USB
-esphome run esphome/cyd_weather_dummy.yaml --device COMx
-
-# Siguientes cargas por WiFi (OTA)
-esphome run esphome/cyd_weather_dummy.yaml --device cyd-weather-dummy.local
-```
-
-### 5. Comprueba que todo está bien (3 min)
-
-1. La pantalla muestra hora, icono wifi y datos.
-2. En HA el dispositivo aparece como integrado por ESPHome.
-3. Si algún dato sale `--`, revisa que la entidad exista en HA con el mismo nombre.
-
-### 1. Instala ESPHome
-
-```sh
-pip install esphome
-```
-
-Necesitas **Python 3.8+** y **pip**. También puedes usar el add-on oficial de ESPHome en Home Assistant.
-
-Documentación oficial: [https://esphome.io/guides/installing_esphome.html](https://esphome.io/guides/installing_esphome.html)
-
-### 2. Configura tus credenciales
-
-Copia `esphome/secrets.yaml.example` a `esphome/secrets.yaml` y rellena tus datos:
-
-```yaml
-wifi_ssid: "TuRedWiFi"
-wifi_password: "TuContraseña"
-ota_password: "una_clave_segura"
-api_encryption_key: "clave_base64_de_32_bytes"
-location_name: "home"       # solo cyd_weather*.yaml
-location_display: "Mi Casa" # solo cyd_weather*.yaml
-```
-
 Para generar la clave de cifrado:
 
 ```sh
@@ -205,7 +163,7 @@ openssl rand -base64 32
 
 > En `cyd_weather.yaml` y `cyd_weather_dummy.yaml` la zona horaria está definida en `timezone: "Europe/Madrid"`. Si no vives en esa zona, cámbiala en esos YAML.
 
-### 3. Instala los drivers USB (primera vez)
+### 4. Instala los drivers USB (primera vez)
 
 | Chip | Driver |
 |------|--------|
@@ -215,12 +173,28 @@ openssl rand -base64 32
 
 > Si no aparece ningún puerto COM (Windows) o `/dev/ttyUSB0` (Linux) al conectar el ESP32, instala los dos primeros — no hay forma rápida de saber qué chip lleva sin abrirla.
 
-### 4. Elige tu plataforma y flashea
+### 5. Elige tu plataforma y flashea
 
 - **ESP32-C3 Super Mini** → sigue la guía en [docs/ESP32_C3.md](docs/ESP32_C3.md)
 - **CYD (Cheap Yellow Display)** → sigue la guía en [docs/CYD.md](docs/CYD.md)
 
+Para empezar rápido con CYD:
+
+```sh
+# Primera carga por USB (mantén BOOT pulsado al conectar)
+esphome run esphome/cyd_weather_dummy.yaml --device COMx
+
+# Siguientes cargas por WiFi (OTA)
+esphome run esphome/cyd_weather_dummy.yaml --device cyd-weather-dummy.local
+```
+
 > **Primera flash:** siempre por USB (botón BOOT pulsado al conectar). Las siguientes actualizaciones van por WiFi (OTA) automáticamente.
+
+### 6. Comprueba que todo está bien
+
+1. La pantalla muestra hora, icono wifi y datos.
+2. En HA el dispositivo aparece como integrado por ESPHome.
+3. Si algún dato sale `--`, revisa que la entidad exista en HA con el mismo nombre.
 
 ---
 

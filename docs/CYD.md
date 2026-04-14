@@ -249,7 +249,7 @@ location_display: "Mi Casa" # texto visible en la barra superior
 
 ### Diferencias respecto al ESP32-C3
 
-| | ESP32-C3 (Proyectos 1–7) | CYD (Proyectos 8–10) |
+| | ESP32-C3 (Proyectos 1–7) | CYD (Proyectos 8–12) |
 |---|---|---|
 | Placa | ESP32-C3 Super Mini | ESP32-2432S028R (ESP32-WROOM-32) |
 | `esp32.board` | `esp32-c3-devkitm-1` | `esp32dev` |
