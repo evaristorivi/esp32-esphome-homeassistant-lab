@@ -1,9 +1,20 @@
 # ============================================================================
-# ESPHome: cyd_weather.yaml
+# ESPHome: cyd_weather_offset_3dbox.yaml
 #
-# ESP32-2432S028R (CYD) con sensores I2C fisicos en CN1.
-# Datos meteo exteriores via HA (weather.casa / Open-Meteo).
-# Sensores interiores: SCD40 (CO2), AHT20 (T, H), BMP280 (P).
+# Igual que cyd_weather.yaml pero con offsets de compensación térmica
+# para el CYD instalado dentro de una caja impresa en 3D.
+#
+# Offsets calibrados el 2026-04-21 con CYD-box vs C3 referencia (misma ubicación):
+#
+# MODELO TÉRMICO DINÁMICO — la caja tiene dos regímenes según brillo backlight:
+#   - Estado FRÍO (pantalla atenuada/auto-dim):  T=-2.9°C, H=+9.2%
+#   - Estado CALIENTE (pantalla 100% equilibrio): T=-3.1°C, H=+10.0%
+# La variable global thermal_load (0..1) sigue el brillo con τ≈5min (inercia térmica
+# de la caja). Los filtros lambda interpolan el offset según thermal_load.
+#
+# Offsets estáticos (no dependen del brillo):
+#   - Presión:  CYD=1004.5hPa / C3=1004.4hPa → offset: +4.0hPa (estático)
+#   - CO2:      sin offset — SCD40 recién reseteado, ASC necesita ~7 días para calibrar
 #
 # Paginas (navegacion MANUAL con botones < > — sin auto-rotacion):
 #   1 - PANEL — meteo exterior (icono+temp+viento+PM) + sensores interiores
@@ -20,15 +31,12 @@
 # ============================================================================
 
 substitutions:
-  # Prefijo de los sensores de HA (sensor.${location}_temperatura, etc.)
-  # El valor real está en secrets.yaml — no se sube a GitHub
   location: !secret location_name
-  # Texto visible en el display ("Weather for: ...")
   location_display: !secret location_display
 
 esphome:
-  name: cyd-weather
-  comment: "ESP32-2432S028R (CYD): Estación meteorológica Weather — LVGL"
+  name: cyd-weather-box
+  comment: "ESP32-2432S028R (CYD): Estación meteorológica Weather — caja 3D — LVGL"
 
 esp32:
   board: esp32dev
@@ -141,6 +149,12 @@ globals:
   - id: energy_save_disabled
     type: bool
     initial_value: 'false'
+  # Estado térmico de la caja (0.0=fría, 1.0=caliente) — sigue al brillo
+  # del backlight con constante de tiempo τ≈5min (inercia de la caja 3D).
+  # Arranca en 0.5 (neutro) y converge al estado real en ~15min tras cada boot.
+  - id: thermal_load
+    type: float
+    initial_value: '0.5'
 
 # ── Sensores físicos I²C ──────────────────────────────────────────────────────
 sensor:
@@ -156,6 +170,8 @@ sensor:
     pressure:
       name: "Presion Local"
       id: bmp280_press
+      filters:
+        - offset: 4.0   # calibrado 2026-04-21
       on_value:
         - lvgl.label.update:
             id: lbl_s_press
@@ -171,6 +187,9 @@ sensor:
     temperature:
       name: "Temperatura Interior"
       id: aht20_temp
+      filters:
+        # Offset dinámico: -2.9 (frío) → -3.1 (caliente, backlight 100% equilibrio)
+        - lambda: 'return x + (-2.9f - 0.2f * id(thermal_load));'
       on_value:
         - lvgl.label.update:
             id: lbl_s_temp
@@ -180,6 +199,9 @@ sensor:
     humidity:
       name: "Humedad Interior"
       id: aht20_hum
+      filters:
+        # Offset dinámico: +9.2 (frío) → +10.0 (caliente, backlight 100% equilibrio)
+        - lambda: 'return x + (9.2f + 0.8f * id(thermal_load));'
       on_value:
         - lvgl.label.update:
             id: lbl_s_hum
@@ -228,7 +250,6 @@ sensor:
     internal: true
 
   # ── Sensores meteorologicos via Home Assistant ──────────────────────────
-  # Temperatura exterior actual (de HA weather o sensor externo)
   - platform: homeassistant
     id: wx_temp
     entity_id: sensor.${location}_temperatura
@@ -240,7 +261,6 @@ sensor:
             format: "%.1f"
             args: ['x']
 
-  # Velocidad viento
   - platform: homeassistant
     id: wx_wind
     entity_id: sensor.${location}_viento
@@ -252,7 +272,6 @@ sensor:
             format: "%.1f km/h"
             args: ['x * 3.6f']
 
-  # PM2.5 calidad del aire
   - platform: homeassistant
     id: wx_pm25
     entity_id: sensor.${location}_pm25
@@ -264,7 +283,6 @@ sensor:
             format: "%.1f"
             args: ['x']
 
-  # PM10 calidad del aire
   - platform: homeassistant
     id: wx_pm10
     entity_id: sensor.${location}_pm10
@@ -443,47 +461,44 @@ text_sensor:
     entity_id: sensor.${location}_condicion
     internal: true
     on_value:
-      # Icono FontAwesome según condición OpenWeatherMap
       - lambda: |-
           std::string cond = x;
-          const char* icon = "\uF185";  // sol por defecto
-          if (cond == "clear-night")          icon = "\uF186";  // luna
-          else if (cond == "cloudy")           icon = "\uF0C2";  // nube
-          else if (cond == "fog")              icon = "\uF75F";  // niebla
-          else if (cond == "hail")             icon = "\uF73B";  // granizo
-          else if (cond == "lightning")        icon = "\uF0E7";  // rayo
-          else if (cond == "lightning-rainy")  icon = "\uF0E7";  // rayo
-          else if (cond == "partlycloudy")     icon = "\uF6C4";  // sol+nube
-          else if (cond == "pouring")          icon = "\uF73D";  // lluvia fuerte
-          else if (cond == "rainy")            icon = "\uF740";  // lluvia
-          else if (cond == "snowy")            icon = "\uF2DC";  // nieve
-          else if (cond == "snowy-rainy")      icon = "\uF2DC";  // nieve
-          else if (cond == "sunny")            icon = "\uF185";  // sol
-          else if (cond == "windy")            icon = "\uF72E";  // viento
-          else if (cond == "windy-variant")    icon = "\uF72E";  // viento
-          else if (cond == "exceptional")      icon = "\uF071";  // warning
+          const char* icon = "\uF185";
+          if (cond == "clear-night")          icon = "\uF186";
+          else if (cond == "cloudy")           icon = "\uF0C2";
+          else if (cond == "fog")              icon = "\uF75F";
+          else if (cond == "hail")             icon = "\uF73B";
+          else if (cond == "lightning")        icon = "\uF0E7";
+          else if (cond == "lightning-rainy")  icon = "\uF0E7";
+          else if (cond == "partlycloudy")     icon = "\uF6C4";
+          else if (cond == "pouring")          icon = "\uF73D";
+          else if (cond == "rainy")            icon = "\uF740";
+          else if (cond == "snowy")            icon = "\uF2DC";
+          else if (cond == "snowy-rainy")      icon = "\uF2DC";
+          else if (cond == "sunny")            icon = "\uF185";
+          else if (cond == "windy")            icon = "\uF72E";
+          else if (cond == "windy-variant")    icon = "\uF72E";
+          else if (cond == "exceptional")      icon = "\uF071";
           lv_label_set_text(id(lbl_wx_icon_big), icon);
-      # Color del icono según condición
       - lambda: |-
           std::string cond = x;
           lv_color_t col;
           if (cond == "sunny" || cond == "clear-night")
-            col = lv_color_hex(0xFFD600);       // dorado
+            col = lv_color_hex(0xFFD600);
           else if (cond == "partlycloudy")
-            col = lv_color_hex(0xFFAA00);       // naranja
+            col = lv_color_hex(0xFFAA00);
           else if (cond == "cloudy" || cond == "fog")
-            col = lv_color_hex(0x90A4AE);       // gris azul
+            col = lv_color_hex(0x90A4AE);
           else if (cond == "rainy" || cond == "pouring")
-            col = lv_color_hex(0x42A5F5);       // azul
+            col = lv_color_hex(0x42A5F5);
           else if (cond == "snowy" || cond == "snowy-rainy")
-            col = lv_color_hex(0xB3E5FC);       // azul claro
+            col = lv_color_hex(0xB3E5FC);
           else if (cond == "lightning" || cond == "lightning-rainy")
-            col = lv_color_hex(0xFFFF00);       // amarillo
+            col = lv_color_hex(0xFFFF00);
           else
             col = lv_color_hex(0xFFD600);
           lv_obj_set_style_text_color(id(lbl_wx_icon_big), col, 0);
 
-  # Descripción textual de la condición (en español)
   - platform: homeassistant
     id: wx_condition_text
     entity_id: sensor.${location}_condicion_texto
@@ -493,7 +508,6 @@ text_sensor:
           id: lbl_wx_cond_text
           text: !lambda 'return x.c_str();'
 
-  # Condiciones para columnas de previsión (+3h, +6h, día+1, día+2)
   - platform: homeassistant
     id: fc_0_cond
     entity_id: sensor.${location}_forecast_3h_cond
@@ -558,7 +572,6 @@ text_sensor:
           else if (c=="clear-night")             icon = "\uF186";
           lv_label_set_text(id(lbl_fc3_icon), icon);
 
-  # Etiqueta día para columna 3 (Pt = Piątek/Viernes) y columna 4 (Sob = Sábado)
   - platform: homeassistant
     id: fc_d1_label
     entity_id: sensor.${location}_forecast_d1_diaSemana
@@ -586,6 +599,18 @@ button:
 
 # ── Actualización periódica de hora y WiFi ────────────────────────────────────
 interval:
+  # Modelo térmico: thermal_load sigue al brillo del backlight con τ≈5min.
+  # alpha = dt/(tau+dt) = 30/(300+30) ≈ 0.091
+  - interval: 30s
+    then:
+      - lambda: |-
+          float target = 0.0f;
+          if (id(backlight).remote_values.is_on()) {
+            target = id(backlight).remote_values.get_brightness();
+          }
+          const float alpha = 0.091f;
+          id(thermal_load) += alpha * (target - id(thermal_load));
+
   - interval: 1s
     then:
       - lambda: |-
@@ -693,7 +718,6 @@ lvgl:
                 transition_length: 3s
 
   style_definitions:
-    # Tarjeta con sombra (para VWCE)
     - id: style_card
       bg_color: 0x161B22
       bg_opa: cover
@@ -706,7 +730,6 @@ lvgl:
       shadow_opa: 25%
       shadow_ofs_y: 4
 
-    # Fila de prevision
     - id: style_fc_row
       bg_color: 0x0D2040
       bg_opa: cover
@@ -719,7 +742,6 @@ lvgl:
   # ── Capa superior — flotante sin barra fija ─────────────────────────────
   top_layer:
     widgets:
-      # Boton play/pausa auto-rotacion
       - button:
           x: 247
           y: 0
@@ -749,7 +771,6 @@ lvgl:
                 text_font: fa_14
                 text_color: 0x4FC3F7
 
-      # Hora — centrada en zona izquierda (top-left)
       - label:
           id: lbl_hora
           x: 120
@@ -758,7 +779,6 @@ lvgl:
           text_font: montserrat_18
           text_color: 0xFFFFFF
 
-      # WiFi (siempre visible) — al final de los iconos
       - label:
           id: lbl_wifi_top
           x: 296
@@ -767,7 +787,6 @@ lvgl:
           text_font: fa_14
           text_color: 0x4ADE80
 
-      # Boton < pagina anterior
       - button:
           x: 0
           y: 20
@@ -787,7 +806,6 @@ lvgl:
                 text_font: fa_14
                 text_color: 0x2A4A6A
 
-      # Boton > pagina siguiente
       - button:
           x: 280
           y: 20
@@ -807,7 +825,6 @@ lvgl:
                 text_font: fa_14
                 text_color: 0x2A4A6A
 
-      # Indicadores de pagina (3 dots centrados)
       - obj:
           id: dot_p1
           x: 143
@@ -842,7 +859,6 @@ lvgl:
           border_width: 0
           clickable: false
 
-      # Boton desactivar ahorro de energia
       - button:
           id: btn_energy_save
           x: 220
@@ -943,7 +959,6 @@ lvgl:
                       text_font: montserrat_14
                       text_color: 0xFFFFFF
 
-      # Boton brillo
       - button:
           x: 272
           y: 0
@@ -996,7 +1011,6 @@ lvgl:
             scrollable: false
             widgets:
 
-              # Barra acento teal (3px)
               - obj:
                   x: 0
                   y: 0
@@ -1008,7 +1022,6 @@ lvgl:
                   border_width: 0
                   clickable: false
 
-              # Localizacion
               - label:
                   x: 12
                   y: 6
@@ -1016,8 +1029,6 @@ lvgl:
                   text_font: montserrat_14
                   text_color: 0x00BCD4
 
-
-              # ── Zona hero: icono grande + temperatura ────────────────────
               - label:
                   id: lbl_wx_icon_big
                   x: 14
@@ -1043,7 +1054,6 @@ lvgl:
                   text_font: montserrat_22
                   text_color: 0x4FC3F7
 
-              # Condicion texto
               - label:
                    id: lbl_wx_cond_text
                    x: 10
@@ -1054,7 +1064,6 @@ lvgl:
                    text_color: 0x78909C
                    long_mode: CLIP
 
-              # ── Separador teal ───────────────────────────────────────────
               - obj:
                   x: 10
                   y: 94
@@ -1066,7 +1075,6 @@ lvgl:
                   border_width: 0
                   clickable: false
 
-              # ── Exterior: VIENTO (apilado) + PM ─────────────────────────
               - label:
                   x: 208
                   y: 26
@@ -1108,8 +1116,6 @@ lvgl:
                   text_font: montserrat_14
                   text_color: 0x69FF47
 
-              # ── Grid 2x2: sensores interiores ────────────────────────────
-              # Boton largo sobre zona CO2 → dialogo reset
               - button:
                   x: 40
                   y: 103
@@ -1121,7 +1127,6 @@ lvgl:
                   on_long_press:
                     - lambda: lv_obj_clear_flag(id(dlg_co2_reset), LV_OBJ_FLAG_HIDDEN);
 
-              # Fila 1: CO2 | T.INT
               - label:
                   x: 45
                   y: 109
@@ -1157,7 +1162,6 @@ lvgl:
                   text_font: montserrat_28
                   text_color: 0xFFFFFF
 
-              # Fila 2: HUM | PRESION
               - label:
                   x: 45
                   y: 163
@@ -1215,7 +1219,6 @@ lvgl:
             scrollable: false
             widgets:
 
-              # Barra acento teal
               - obj:
                   x: 0
                   y: 0
@@ -1227,7 +1230,6 @@ lvgl:
                   border_width: 0
                   clickable: false
 
-              # Titulo
               - label:
                   x: 12
                   y: 8
@@ -1235,7 +1237,6 @@ lvgl:
                   text_font: montserrat_14
                   text_color: 0x00BCD4
 
-              # ── Fila 0: +3h ─────────────────────────────────────────────
               - obj:
                   styles: style_fc_row
                   x: 20
@@ -1282,7 +1283,6 @@ lvgl:
                         text_font: montserrat_14
                         text_color: 0x69FF47
 
-              # ── Fila 1: +6h ─────────────────────────────────────────────
               - obj:
                   styles: style_fc_row
                   x: 20
@@ -1329,7 +1329,6 @@ lvgl:
                         text_font: montserrat_14
                         text_color: 0x69FF47
 
-              # ── Fila 2: D+1 ─────────────────────────────────────────────
               - obj:
                   styles: style_fc_row
                   x: 20
@@ -1383,7 +1382,6 @@ lvgl:
                         text_font: montserrat_14
                         text_color: 0x69FF47
 
-              # ── Fila 3: D+2 ─────────────────────────────────────────────
               - obj:
                   styles: style_fc_row
                   x: 20
@@ -1460,7 +1458,6 @@ lvgl:
             scrollable: false
             widgets:
 
-              # Barra acento dorada (3px)
               - obj:
                   x: 0
                   y: 0
@@ -1472,7 +1469,6 @@ lvgl:
                   border_width: 0
                   clickable: false
 
-              # Titulo VWCE
               - label:
                   x: 16
                   y: 12
@@ -1480,7 +1476,6 @@ lvgl:
                   text_font: montserrat_22
                   text_color: 0xFFD600
 
-              # Badge XETRA
               - label:
                   align: BOTTOM_MID
                   y: -10
@@ -1488,7 +1483,6 @@ lvgl:
                   text_font: montserrat_14
                   text_color: 0x808090
 
-              # Tarjeta central con precio
               - obj:
                   styles: style_card
                   align: CENTER
@@ -1499,7 +1493,6 @@ lvgl:
                   scrollable: false
                   gesture_bubble: true
                   widgets:
-                    # Precio
                     - label:
                         id: lbl_vwce_value
                         align: CENTER
@@ -1507,11 +1500,9 @@ lvgl:
                         text: "---"
                         text_font: montserrat_48
                         text_color: 0xFFFFFF
-                    # Unidad
                     - label:
                         align: CENTER
                         y: 30
                         text: "EUR"
                         text_font: montserrat_16
                         text_color: 0x808090
-

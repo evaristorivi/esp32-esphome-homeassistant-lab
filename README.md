@@ -37,6 +37,7 @@ El proyecto soporta dos plataformas hardware distintas. Elige la que prefieras:
 | `cyd_sensors_vwce.yaml` | CYD | TFT 2.8" LVGL táctil — sensores I²C directos + VWCE Yahoo Finance directo |
 | `cyd_weather_dummy.yaml` | CYD | TFT 2.8" LVGL táctil — 3 páginas: panel meteo exterior + sensores interiores (via HA) + previsión +3h/+6h/D+1/D+2 + VWCE |
 | `cyd_weather.yaml` | CYD | TFT 2.8" LVGL táctil — 3 páginas: panel meteo exterior + sensores I²C directos + previsión +3h/+6h/D+1/D+2 + VWCE + reset CO₂ táctil |
+| `cyd_weather_offset_3dbox.yaml` | CYD | Igual que `cyd_weather.yaml` pero con **compensación térmica dinámica** para CYD montado en caja 3D. Corrige el calentamiento del display ST7789 sobre los sensores I²C mediante offsets que siguen al brillo del backlight con inercia térmica τ≈5min |
 
 ---
 
@@ -305,6 +306,7 @@ Solución:
 │   ├── cyd_sensors_vwce_dummy.yaml
 │   ├── cyd_weather.yaml
 │   ├── cyd_weather_dummy.yaml
+│   ├── cyd_weather_offset_3dbox.yaml
 │   ├── secrets.yaml
 │   └── secrets.yaml.example
 ├── homeassistant/
@@ -337,7 +339,7 @@ Solución:
 
 ## Mejoras futuras
 
-- Montaje permanente: hub I²C + carcasa 3D impresa
+- Montaje permanente: hub I²C + carcasa 3D impresa — cuando se cierra el CYD en una caja el display calienta los sensores, ver [Proyecto 13 en docs/CYD.md](docs/CYD.md) para la solución con compensación térmica dinámica
 - Diseñar PCB a medida para sustituir la protoboard
 
 ---

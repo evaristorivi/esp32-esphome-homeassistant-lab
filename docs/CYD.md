@@ -360,18 +360,157 @@ esphome run esphome/cyd_weather.yaml --device cyd-weather.local
 
 ---
 
-### Diferencias entre Proyectos 8–12
+### Proyecto 13: CYD estación meteorológica con compensación térmica para caja 3D (`cyd_weather_offset_3dbox.yaml`)
 
-| | P8 (`cyd_dummy`) | P9 (`cyd_sensors_vwce_dummy`) | P10 (`cyd_sensors_vwce`) | P11 (`cyd_weather_dummy`) | P12 (`cyd_weather`) |
-|---|---|---|---|---|---|
-| Sensores ambientales | Desde Home Assistant | Físicos I²C en CN1 | Físicos I²C en CN1 | Desde HA (`weather.casa`) | Desde HA (`weather.casa`) |
-| Bus I²C | No configurado | GPIO22 / GPIO27 | GPIO22 / GPIO27 | No configurado | GPIO22 / GPIO27 |
-| VWCE | Desde HA | Desde HA | HTTP directo Yahoo Finance | Desde HA | Desde HA |
-| PM2.5 / PM10 | No | No | No | Desde HA | Desde HA |
-| Previsión meteorológica | No | No | No | Desde HA (`weather_sensors.yaml`) | Desde HA (`weather_sensors.yaml`) |
-| Sensores interiores | Desde HA (ESP32-C3) | Físicos I²C en CN1 | Físicos I²C en CN1 | Desde HA (ESP32-C3) | Físicos I²C en CN1 |
-| Necesita ESP32-C3 activo | Sí | No | No | Sí (para sensores interiores) | No |
-| Necesita Home Assistant | Sí | Solo para VWCE | No | Sí | Sí |
-| Páginas | 5 (CO₂,T,H,P,VWCE) | 5 (CO₂,T,H,P,VWCE) | 5 (CO₂,T,H,P,VWCE) | 3 (Panel, Previsión, VWCE) | 3 (Panel, Previsión, VWCE) |
+Variante del Proyecto 12 pensada para montar el CYD dentro de una **caja 3D impresa cerrada**. La caja es estéticamente superior pero introduce un problema físico: el display ST7789 y el propio ESP32 generan calor que queda atrapado, calentando los sensores I²C y falseando sus lecturas de temperatura y humedad.
+
+Este proyecto añade un **modelo térmico dinámico** que compensa ese error en tiempo real según el estado del backlight.
+
+#### El problema: la caja 3D es un pequeño horno
+
+Cuando encerras el CYD en una caja sin ventilación forzada:
+
+- El **display TFT** consume ~1-2 W (según brillo) y casi todo se convierte en calor
+- El **ESP32** disipa ~0.3-0.5 W en uso normal (WiFi + CPU)
+- La **caja impresa** tiene muy poca conductividad térmica (PLA/PETG son aislantes)
+
+Resultado: los sensores I²C (AHT20, BMP280, SCD40) miden el **aire dentro de la caja**, no el de la habitación. En la práctica, en equilibrio térmico con pantalla al 100%:
+
+| Magnitud | Error típico |
+|---|---|
+| Temperatura | **+3 °C** (caja más caliente) |
+| Humedad relativa | **−9 %** (aire caliente → HR menor para la misma humedad absoluta) |
+| Presión | **−4 hPa** (efecto más sutil, probablemente convección interior) |
+
+Estos errores son físicos, no de los sensores, y **no desaparecen con mejor calibración de fábrica**. Hay que compensarlos por software.
+
+#### La solución: offsets dinámicos que siguen al backlight
+
+El fallo obvio sería aplicar un offset fijo (-2.9 °C, +9.2 % HR, etc.). Pero el calor interno no es constante:
+
+- Con pantalla atenuada (auto-dim) o apagada → la caja se enfría hacia ambiente
+- Con pantalla al 100% → la caja alcanza su equilibrio caliente
+- Con brillo intermedio → calor proporcional
+
+Aplicar un offset fijo calibrado para "pantalla encendida" descompensa el sensor cuando la pantalla se atenúa (y viceversa).
+
+La compensación correcta es un **modelo térmico de primer orden**: una variable interna `thermal_load` (0.0 = caja fría, 1.0 = caja caliente) que sigue al brillo del backlight con la misma constante de tiempo térmica que la caja física (τ ≈ 5 minutos).
+
+```
+target  = brillo_actual_del_backlight   (0.0 a 1.0)
+thermal_load ← thermal_load + α · (target − thermal_load)
+```
+
+donde `α = Δt / (τ + Δt)` con Δt = 30s (periodo de actualización) y τ = 300s (constante de tiempo térmica empírica de la caja). Esto es un filtro **IIR de primer orden**, matemáticamente equivalente a un circuito RC: simula cómo se calienta y enfría la caja con retardo físico real.
+
+Luego los offsets finales se **interpolan linealmente** entre los valores "fríos" y "calientes":
+
+```yaml
+# Temperatura: -2.9°C (frío) → -3.1°C (caliente)
+- lambda: 'return x + (-2.9f - 0.2f * id(thermal_load));'
+
+# Humedad: +9.2% (frío) → +10.0% (caliente)
+- lambda: 'return x + (9.2f + 0.8f * id(thermal_load));'
+```
+
+#### Qué offsets lleva cada magnitud
+
+| Magnitud | Tipo | Valor frío | Valor caliente | Razón |
+|---|---|---|---|---|
+| **Temperatura** | Dinámico | −2.9 °C | −3.1 °C | Afectada directamente por calor de caja |
+| **Humedad** | Dinámico | +9.2 % | +10.0 % | La HR depende de la T (misma humedad absoluta, más T → menos HR) |
+| **Presión** | Estático | +4.0 hPa | +4.0 hPa | El BMP280 apenas se afecta por cambios pequeños de T |
+| **CO₂** | Sin offset | — | — | SCD40 tiene autocalibración ASC de 7 días; forzar un offset enmascararía problemas reales |
+
+#### Comportamiento en el tiempo
+
+Al encender el CYD o tras una OTA:
+1. `thermal_load` arranca en 0.5 (estado neutro, ya que la variable no se persiste)
+2. Cada 30 s se actualiza hacia el brillo actual
+3. En unos **10–15 minutos** converge al estado térmico real (3 veces τ)
+4. Los offsets se aplican en tiempo real a cada lectura de sensor
+
+Durante la transición los valores leídos son ligeramente imprecisos (±0.1 °C en el peor caso), pero se alinean con la realidad en cuanto la caja alcanza equilibrio térmico — que es también el tiempo físico que tardaría cualquier sensor real en estabilizarse.
+
+#### Por qué no se persiste `thermal_load` en NVS
+
+Sería técnicamente posible añadir `restore_value: true` para recordar el estado térmico tras un reboot. Pero:
+
+- Cada cambio se escribiría en la flash NVS del ESP32
+- Para un error residual de 0.1 °C durante 15 min tras cada boot, no compensa el desgaste acumulado de la flash (aunque sería pequeño)
+- Los reboots en uso normal son muy infrecuentes
+
+Si en tu caso aplicases OTAs frecuentemente (p.ej. durante desarrollo), se podría activar sin problemas.
+
+#### Cómo calibrar para TU caja
+
+Los valores por defecto (−2.9/−3.1 °C, +9.2/+10.0 % HR, +4.0 hPa) están calibrados para una caja de PLA con paredes de 2 mm y pocas rejillas. Si tu diseño es distinto necesitarás recalibrar. **Necesitas un sensor de referencia** (por ejemplo un C3 con el mismo AHT20+BMP280 sin caja, al lado del CYD).
+
+**Metodología de calibración en dos puntos:**
+
+1. **Punto frío** (pantalla atenuada/apagada varias horas, en equilibrio):
+   - Medir `(T_cyd, H_cyd, P_cyd)` vs `(T_ref, H_ref, P_ref)` del sensor de referencia
+   - Offset temperatura frío = T_ref − T_cyd_raw = T_ref − (T_cyd − offset_actual)
+   - Análogo para humedad y presión
+2. **Punto caliente** (pantalla al 100% en equilibrio, mínimo 30 min):
+   - Medir ambos sensores
+   - Calcular offsets calientes del mismo modo
+3. **Actualizar los coeficientes** de las lambdas:
+   ```yaml
+   # Temperatura: valor_frio + (valor_caliente − valor_frio) * thermal_load
+   - lambda: 'return x + (T_FRIO + (T_CAL - T_FRIO) * id(thermal_load));'
+   ```
+
+**Metodología simplificada en un punto** (si no tienes sensor de referencia pero conoces la temperatura ambiente):
+
+- Usa un termómetro/higrómetro casero junto al CYD
+- Mide con pantalla encendida horas (punto caliente)
+- Ajusta el offset "caliente" directamente
+- Asume el "frío" = caliente + 0.2 °C (diferencia típica por ST7789 encendido)
+
+#### Verificación
+
+En los logs de ESPHome (`esphome logs cyd_weather_offset_3dbox.yaml`) puedes comprobar el comportamiento:
+
+```
+[D][sensor:124]: 'Temperatura Interior' >> 22.73 °C    ← valor final con offset aplicado
+[D][sensor:124]: 'BMP280 Temperatura' >> 24.5 °C       ← raw del BMP280 (sin offset)
+```
+
+La diferencia entre ambos confirma que la caja sí está más caliente que el ambiente y que el offset está actuando.
+
+Para inspeccionar `thermal_load` puedes añadir temporalmente un sensor template:
+
+```yaml
+sensor:
+  - platform: template
+    name: "Thermal Load"
+    lambda: 'return id(thermal_load);'
+    update_interval: 60s
+```
+
+Verás en HA cómo sube/baja según juegues con el brillo del backlight.
+
+```sh
+esphome run esphome/cyd_weather_offset_3dbox.yaml --device COMx
+esphome run esphome/cyd_weather_offset_3dbox.yaml --device cyd-weather-box.local
+```
+
+---
+
+### Diferencias entre Proyectos 8–13
+
+| | P8 (`cyd_dummy`) | P9 (`cyd_sensors_vwce_dummy`) | P10 (`cyd_sensors_vwce`) | P11 (`cyd_weather_dummy`) | P12 (`cyd_weather`) | P13 (`cyd_weather_offset_3dbox`) |
+|---|---|---|---|---|---|---|
+| Sensores ambientales | Desde Home Assistant | Físicos I²C en CN1 | Físicos I²C en CN1 | Desde HA (`weather.casa`) | Desde HA (`weather.casa`) | Desde HA (`weather.casa`) |
+| Bus I²C | No configurado | GPIO22 / GPIO27 | GPIO22 / GPIO27 | No configurado | GPIO22 / GPIO27 | GPIO22 / GPIO27 |
+| VWCE | Desde HA | Desde HA | HTTP directo Yahoo Finance | Desde HA | Desde HA | Desde HA |
+| PM2.5 / PM10 | No | No | No | Desde HA | Desde HA | Desde HA |
+| Previsión meteorológica | No | No | No | Desde HA | Desde HA | Desde HA |
+| Sensores interiores | Desde HA (ESP32-C3) | Físicos I²C en CN1 | Físicos I²C en CN1 | Desde HA (ESP32-C3) | Físicos I²C en CN1 | Físicos I²C en CN1 |
+| Compensación térmica caja 3D | — | — | — | — | — | **Dinámica (τ≈5min)** |
+| Necesita ESP32-C3 activo | Sí | No | No | Sí (sensores int.) | No | No |
+| Necesita Home Assistant | Sí | Solo para VWCE | No | Sí | Sí | Sí |
+| Páginas | 5 (CO₂,T,H,P,VWCE) | 5 (CO₂,T,H,P,VWCE) | 5 (CO₂,T,H,P,VWCE) | 3 (Panel, Previsión, VWCE) | 3 (Panel, Previsión, VWCE) | 3 (Panel, Previsión, VWCE) |
 
 > **Agradecimiento:** Este proyecto se inspira en parte en el excelente trabajo de [ESP32-HAM-CLOCK de SP3KON](https://github.com/SP3KON/ESP32-HAM-CLOCK), que sirvió de referencia para el diseño de la CYD estación meteorológica.
