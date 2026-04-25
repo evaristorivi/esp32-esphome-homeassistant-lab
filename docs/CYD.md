@@ -81,6 +81,22 @@ También se pueden cablear en paralelo directamente:
 
 > ⚠ GPIO21 está ocupado por el backlight. GPIO35 es input-only. Solo GPIO22 y GPIO27 están disponibles para I²C en el CYD.
 
+### Configuración del SCD40 — modo `single_shot`
+
+Todos los proyectos CYD con sensores físicos (P9, P10, P12, P13) usan `measurement_mode: single_shot` para el SCD40/SCD41:
+
+```yaml
+- platform: scd4x
+  address: 0x62
+  measurement_mode: single_shot   # evita el bug #2832 de ESPHome
+  update_interval: 30s
+  ambient_pressure_compensation_source: bmp280_press
+```
+
+El modo por defecto (`periodic`) tiene un bug conocido ([ESPHome issue #2832](https://github.com/esphome/esphome/issues/2832)): la máquina de estados interna del sensor se queda bloqueada aleatoriamente y `data_ready` devuelve `false` de forma permanente — el sensor deja de leer sin aviso. Con `single_shot` cada medición es un disparo independiente, sin estado persistente que pueda bloquearse.
+
+> La autocalibracion ASC es compatible con `single_shot` — simplemente acumula las muestras más lentamente.
+
 ---
 
 ## Interfaz LVGL — Proyectos 8–10 (datos ambientales)

@@ -219,16 +219,55 @@ El SCD40 asume que el mínimo de 7 días es ~400 ppm y se recalibra. Si nunca se
   automatic_self_calibration: false
 ```
 
+> La ASC es compatible con `measurement_mode: single_shot` — simplemente necesita más días para acumular suficientes muestras.
+
 #### Compensación de presión ambiental
 
-El SCD4x asume por defecto 1013.25 hPa (nivel del mar). Si la presión real difiere, la lectura de CO₂ se desviará ~0.04% por cada hPa. Como ya tenemos el BMP280 en el mismo bus I²C, todos los proyectos con ambos sensores usan `ambient_pressure_compensation_source` para que el SCD4x corrija en tiempo real:
+El SCD4x asume por defecto 1013.25 hPa (nivel del mar). Si la presión real difiere, la lectura de CO₂ se desviará ~1.6 ppm por cada hPa. Como ya tenemos el BMP280 en el mismo bus I²C, todos los proyectos con ambos sensores usan `ambient_pressure_compensation_source` para que el SCD4x corrija en tiempo real:
 
 ```yaml
 - platform: scd4x
   ambient_pressure_compensation_source: bmp280_press
 ```
 
-En los primeros ~30 s (hasta que el BMP280 publica su primera lectura) el SCD4x usa 1013.25 hPa como fallback. A partir de ahí la compensación es automática.
+La variación meteorológica diaria (±20–30 hPa) introduce un error máximo de ±50 ppm sin compensación — irrelevante para detectar niveles de calidad del aire, pero la compensación está disponible y tiene coste cero.
+
+#### Bug del SCD4x: "Data not ready" permanente en modo periódico
+
+El SCD4x tiene un bug documentado ([ESPHome issue #2832](https://github.com/esphome/issues/issues/2832)) por el que su máquina de estados interna en **modo periódico** (el modo por defecto) se queda trabada aleatoriamente. Cuando ocurre:
+
+- El sensor sigue respondiendo en el bus I²C (aparece en el scan de direcciones)
+- `data_ready` devuelve siempre `false`
+- ESPHome registra `[W][scd4x:186]: Data not ready` en cada ciclo
+- Las lecturas de CO₂ cesan indefinidamente — sin recuperación automática
+
+**Síntoma típico:** el sensor lee bien 1–2 veces tras el arranque y luego queda permanentemente en "Data not ready".
+
+**Por qué el pull-up no es la solución:** añadir resistencias pull-up de 4.7 kΩ en SDA/SCL reduce la frecuencia del bug (mejora los flancos I²C) pero no lo elimina. El bug sigue latente y reaparece.
+
+**Solución definitiva: `measurement_mode: single_shot`**
+
+En modo `single_shot` el sensor está en reposo entre lecturas. ESPHome lanza una medición puntual en cada ciclo de `update_interval`, espera 5 s internamente sin bloquear el loop, y lee el resultado. No existe máquina de estados persistente que pueda quedarse trabada — cada medición es completamente independiente.
+
+```yaml
+- platform: scd4x
+  measurement_mode: single_shot
+  update_interval: 30s
+  ambient_pressure_compensation_source: bmp280_press
+```
+
+**Comparativa de modos disponibles:**
+
+| Modo | Comportamiento | Intervalo mínimo | Observación |
+|---|---|---|---|
+| `periodic` *(defecto)* | Mide cada 5 s de forma continua | 5 s | Bug de estado — no recomendado para `update_interval` largo |
+| `low_power_periodic` | Mide cada 30 s de forma continua | 30 s | Mismo bug, menos frecuente |
+| `single_shot` ✓ | Mide solo cuando ESPHome lo pide | 5 s | **Recomendado** para `update_interval: 30s` |
+| `single_shot_rht_only` | Solo temperatura y humedad, sin CO₂ | ~50 ms | Sin uso en estos proyectos |
+
+**Ventaja adicional de `single_shot` para `update_interval: 30s`:** en modo periódico el sensor genera 6 mediciones por cada una que ESPHome lee — las otras 5 se descartan, desperdiciando energía y aumentando el self-heating. Con `single_shot` solo mide cuando toca → temperatura interna menor → la compensación de self-heating (`Temperature offset: 4.00°C`) es más precisa → CO₂ más exacto.
+
+Todos los proyectos de este repositorio usan `measurement_mode: single_shot`.
 
 #### Frecuencias
 
@@ -237,7 +276,7 @@ En los primeros ~30 s (hasta que el BMP280 publica su primera lectura) el SCD4x 
 | Lectura de sensores | 30 s |
 | Redibujado de pantalla | 1 s |
 | Rotación de página | 6 s |
-| SCD40 internamente | cada 5 s (modo periódico) |
+| SCD40 internamente | una medición por ciclo de lectura (`single_shot`) |
 
 ```sh
 esphome run esphome/c3_sensors_lab.yaml --device COMx
