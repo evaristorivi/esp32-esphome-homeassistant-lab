@@ -4,10 +4,10 @@
 # Igual que cyd_weather.yaml pero con offsets de compensación térmica
 # para el CYD instalado dentro de una caja impresa en 3D.
 #
-# Offsets calibrados el 2026-04-21 con CYD-box vs C3 referencia (misma ubicación):
+# Offsets calibrados el 2026-04-21, ajuste frío el 2026-04-26 (CYD-box vs C3 referencia, misma ubicación):
 #
 # MODELO TÉRMICO DINÁMICO — la caja tiene dos regímenes según brillo backlight:
-#   - Estado FRÍO (pantalla atenuada/auto-dim):  T=-2.9°C, H=+9.2%
+#   - Estado FRÍO (pantalla apagada):            T=-2.5°C, H=+4.5%
 #   - Estado CALIENTE (pantalla 100% equilibrio): T=-3.8°C, H=+10.0%
 # La variable global thermal_load (0..1) sigue el brillo con τ≈5min (inercia térmica
 # de la caja). Los filtros lambda interpolan el offset según thermal_load.
@@ -188,8 +188,8 @@ sensor:
       name: "Temperatura Interior"
       id: aht20_temp
       filters:
-        # Offset dinámico: -2.9 (frío) → -3.8 (caliente, backlight 100% equilibrio)
-        - lambda: 'return x + (-2.9f - 0.9f * id(thermal_load));'
+        # Offset dinámico: -2.5 (frío) → -3.8 (caliente, backlight 100% equilibrio)
+        - lambda: 'return x + (-2.5f - 1.3f * id(thermal_load));'
       on_value:
         - lvgl.label.update:
             id: lbl_s_temp
@@ -200,8 +200,8 @@ sensor:
       name: "Humedad Interior"
       id: aht20_hum
       filters:
-        # Offset dinámico: +9.2 (frío) → +10.0 (caliente, backlight 100% equilibrio)
-        - lambda: 'return x + (9.2f + 0.8f * id(thermal_load));'
+        # Offset dinámico: +4.5 (frío) → +10.0 (caliente, backlight 100% equilibrio)
+        - lambda: 'return x + (4.5f + 5.5f * id(thermal_load));'
       on_value:
         - lvgl.label.update:
             id: lbl_s_hum
