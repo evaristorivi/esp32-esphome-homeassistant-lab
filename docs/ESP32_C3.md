@@ -236,6 +236,8 @@ La variación meteorológica diaria (±20–30 hPa) introduce un error máximo d
 
 Importante: según la documentación oficial de ESPHome y la especificación de Sensirion, `measurement_mode: single_shot` solo está soportado por SCD41. En SCD40 puede parecer que funciona en algunos casos, pero está fuera de especificación y no debe considerarse válido.
 
+Resumen detallado de modos: [README → SCD4x: compatibilidad de modos de medición](../README.md#scd4x-compatibilidad-de-modos-de-medición).
+
 Por eso, en este repositorio los YAML con SCD40 ya no fuerzan `measurement_mode: single_shot`; se usa el modo por defecto (`periodic`) o, si se prioriza consumo, `low_power_periodic`.
 
 #### Frecuencias

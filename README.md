@@ -286,6 +286,12 @@ Solución:
 
 Importante de compatibilidad: `measurement_mode: single_shot` es solo para SCD41 (y SCD43 según datasheet actual de Sensirion). En SCD40 puede aparentar funcionar, pero está fuera de especificación y no debe considerarse una solución válida.
 
+Qué hace cada modo:
+- `periodic` (por defecto): mide cada 5 s. Mejor respuesta temporal, a costa de más consumo y más self-heating.
+- `low_power_periodic`: mide cada 30 s. Menor consumo y menor calentamiento; requiere `update_interval >= 30s`.
+- `single_shot` (solo SCD41/SCD43): dispara una medición completa en cada `update_interval` (tarda ~5 s). Útil para intervalos largos y batería.
+- `single_shot_rht_only` (solo SCD41/SCD43): mide solo temperatura y humedad (~50 ms); CO₂ se reporta como `0`.
+
 ```yaml
 - platform: scd4x
   address: 0x62

@@ -86,6 +86,7 @@ También se pueden cablear en paralelo directamente:
 Según la documentación oficial de ESPHome y la especificación de Sensirion:
 - `single_shot` y `single_shot_rht_only` son modos exclusivos del SCD41.
 - En SCD40 puede parecer que `single_shot` funciona en algunos firmwares, pero está fuera de especificación y no debe usarse.
+- Resumen detallado de modos: [README → SCD4x: compatibilidad de modos de medición](../README.md#scd4x-compatibilidad-de-modos-de-medición).
 
 ```yaml
 - platform: scd4x
