@@ -282,27 +282,22 @@ Solución:
 2. Recompila y sube OTA.
 3. Verifica también la zona horaria de Home Assistant.
 
-### Bug SCD4x (issue #2832)
+### SCD4x: compatibilidad de modos de medición
 
-Síntoma típico en logs: `[W][scd4x:186]: Data not ready` y el sensor CO₂ se queda sin lecturas.
-
-Síntoma: el SCD40/SCD41 funciona bien durante el arranque (2–4 mediciones) y luego deja de leer permanentemente — el log muestra solo `Data not ready` sin recuperarse.
-
-Causa: bug conocido en ESPHome ([issue #2832](https://github.com/esphome/issues/issues/2832)). En modo `periodic` (por defecto), la máquina de estados interna del SCD4x se queda bloqueada: `data_ready` devuelve permanentemente `false` y no hay recuperación automática. El fallo es aleatorio — puede aparecer a los 10 minutos o tras horas. Añadir pull-ups externos de 4.7 kΩ reduce la frecuencia porque mejora las subidas del bus I²C (open-drain con pull-ups internos débiles de ~45 kΩ), pero no elimina el bug.
-
-Solución: usar `measurement_mode: single_shot`. En este modo cada medición es independiente — ESPHome lanza un disparo, espera 5 s (no bloqueante) y lee el resultado. No hay máquina de estados persistente que pueda bloquearse.
+Importante de compatibilidad: `measurement_mode: single_shot` es solo para SCD41 (y SCD43 según datasheet actual de Sensirion). En SCD40 puede aparentar funcionar, pero está fuera de especificación y no debe considerarse una solución válida.
 
 ```yaml
 - platform: scd4x
   address: 0x62
-  measurement_mode: single_shot   # ← fix para el bug #2832
+  # SCD40: periodic (por defecto)
+  # Opcional: low_power_periodic (con update_interval >= 30s)
   update_interval: 30s
   ambient_pressure_compensation_source: bmp280_press
 ```
 
-Todos los YAML de este proyecto ya incluyen `measurement_mode: single_shot`.
+Estado actual del repositorio: los YAML con SCD40 no fuerzan `measurement_mode: single_shot`.
 
-> `single_shot` no desactiva la autocalibracion ASC — simplemente acumula muestras más despacio (necesita más días para completar el ciclo de 7 días). Para intervalos de 30 s es además más eficiente: el SCD40 está apagado entre mediciones en lugar de mantener el oscilador running.
+> La autocalibración ASC sigue activa en los modos soportados del SCD40 (`periodic` y `low_power_periodic`).
 
 ---
 

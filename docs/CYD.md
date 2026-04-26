@@ -81,21 +81,24 @@ También se pueden cablear en paralelo directamente:
 
 > ⚠ GPIO21 está ocupado por el backlight. GPIO35 es input-only. Solo GPIO22 y GPIO27 están disponibles para I²C en el CYD.
 
-### Configuración del SCD40 — modo `single_shot`
+### Configuración del SCD4x — compatibilidad de modos
 
-Todos los proyectos CYD con sensores físicos (P9, P10, P12, P13) usan `measurement_mode: single_shot` para el SCD40/SCD41:
+Según la documentación oficial de ESPHome y la especificación de Sensirion:
+- `single_shot` y `single_shot_rht_only` son modos exclusivos del SCD41.
+- En SCD40 puede parecer que `single_shot` funciona en algunos firmwares, pero está fuera de especificación y no debe usarse.
 
 ```yaml
 - platform: scd4x
   address: 0x62
-  measurement_mode: single_shot   # evita el bug #2832 de ESPHome
+  # SCD40: usar modo por defecto (periodic)
+  # Opcional para bajar consumo: measurement_mode: low_power_periodic
   update_interval: 30s
   ambient_pressure_compensation_source: bmp280_press
 ```
 
-El modo por defecto (`periodic`) tiene un bug conocido en ESPHome (issue #2832). Resumen y explicación completa: [README → Bug SCD4x (issue #2832)](../README.md#bug-scd4x-issue-2832). Aquí y en este repo usamos `measurement_mode: single_shot`.
+En este repo no se fuerza `single_shot` en SCD40 por compatibilidad de especificación.
 
-> La autocalibracion ASC es compatible con `single_shot` — simplemente acumula las muestras más lentamente.
+> La autocalibración ASC sigue funcionando en los modos soportados del SCD40 (`periodic` y `low_power_periodic`).
 
 ---
 

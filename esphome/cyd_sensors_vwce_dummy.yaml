@@ -154,7 +154,6 @@ sensor:
 
   # SCD40/SCD41 — CO₂ (T y H internos del SCD tienen self-heating)
   - platform: scd4x
-    measurement_mode: single_shot
     address: 0x62
     update_interval: 30s
     ambient_pressure_compensation_source: bmp280_press

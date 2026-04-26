@@ -219,7 +219,7 @@ El SCD40 asume que el mínimo de 7 días es ~400 ppm y se recalibra. Si nunca se
   automatic_self_calibration: false
 ```
 
-> La ASC es compatible con `measurement_mode: single_shot` — simplemente necesita más días para acumular suficientes muestras.
+> La ASC funciona en los modos soportados por el sensor. En SCD40 usa `periodic` (por defecto) o `low_power_periodic`. `single_shot` es solo para SCD41.
 
 #### Compensación de presión ambiental
 
@@ -232,13 +232,11 @@ El SCD4x asume por defecto 1013.25 hPa (nivel del mar). Si la presión real difi
 
 La variación meteorológica diaria (±20–30 hPa) introduce un error máximo de ±50 ppm sin compensación — irrelevante para detectar niveles de calidad del aire, pero la compensación está disponible y tiene coste cero.
 
-#### Bug del SCD4x: "Data not ready" permanente en modo periódico
+#### Compatibilidad de modos SCD4x
 
-Existe un bug conocido en ESPHome (issue #2832) cuando el SCD4x se usa en modo `periodic`.
+Importante: según la documentación oficial de ESPHome y la especificación de Sensirion, `measurement_mode: single_shot` solo está soportado por SCD41. En SCD40 puede parecer que funciona en algunos casos, pero está fuera de especificación y no debe considerarse válido.
 
-Resumen y explicación completa (síntomas, causa, por qué pull-ups no lo corrigen y modos de medición): [README → Bug SCD4x (issue #2832)](../README.md#bug-scd4x-issue-2832).
-
-En este repositorio se usa `measurement_mode: single_shot` en todos los YAML para evitar ese bloqueo.
+Por eso, en este repositorio los YAML con SCD40 ya no fuerzan `measurement_mode: single_shot`; se usa el modo por defecto (`periodic`) o, si se prioriza consumo, `low_power_periodic`.
 
 #### Frecuencias
 
@@ -247,7 +245,7 @@ En este repositorio se usa `measurement_mode: single_shot` en todos los YAML par
 | Lectura de sensores | 30 s |
 | Redibujado de pantalla | 1 s |
 | Rotación de página | 6 s |
-| SCD40 internamente | una medición por ciclo de lectura (`single_shot`) |
+| SCD40 internamente | modo de medición soportado por especificación (`periodic` por defecto) |
 
 ```sh
 esphome run esphome/c3_sensors_lab.yaml --device COMx
