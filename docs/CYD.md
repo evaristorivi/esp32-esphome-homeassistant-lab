@@ -381,7 +381,7 @@ esphome run esphome/cyd_weather.yaml --device cyd-weather.local
 
 ---
 
-### Proyecto 13: CYD estación meteorológica con compensación térmica para caja 3D (`cyd_weather_offset_3dbox.yaml`)
+### ⭐ Proyecto 13: CYD estación meteorológica con compensación térmica para caja 3D — configuración final recomendada (`cyd_weather_offset_3dbox.yaml`)
 
 Variante del Proyecto 12 pensada para montar el CYD dentro de una **caja 3D impresa cerrada**. La caja es estéticamente superior pero introduce un problema físico: el display ST7789 y el propio ESP32 generan calor que queda atrapado, calentando los sensores I²C y falseando sus lecturas de temperatura y humedad.
 
@@ -503,6 +503,10 @@ En los logs de ESPHome (`esphome logs cyd_weather_offset_3dbox.yaml`) puedes com
 [D][sensor:124]: 'Temperatura Interior' >> 22.73 °C    ← valor final con offset aplicado
 [D][sensor:124]: 'BMP280 Temperatura' >> 24.5 °C       ← raw del BMP280 (sin offset)
 ```
+
+<p align="center">
+  <img src="../images/logs.png" alt="Ejemplo de logs ESPHome" style="width:80%;">
+</p>
 
 La diferencia entre ambos confirma que la caja sí está más caliente que el ambiente y que el offset está actuando.
 

@@ -22,7 +22,22 @@ El proyecto soporta dos plataformas hardware distintas. Elige la que prefieras:
 
 ---
 
-## Proyectos disponibles
+## Configuración final recomendada
+
+Estos son los dos proyectos que concentran todo lo aprendido — el punto de llegada:
+
+| Plataforma | YAML | Qué incluye |
+|---|---|---|
+| **⭐ ESP32-C3** | `c3_sensors_best_pages_vwce_dummy_encoder_3dbox.yaml` | 5 páginas OLED · encoder KY-040 · CO₂, T, H, P + VWCE · compensación térmica para caja 3D · WiFi optimizado |
+| **⭐ CYD** | `cyd_weather_offset_3dbox.yaml` | TFT 2.8" LVGL · meteo exterior + sensores interiores + previsión · VWCE · compensación térmica dinámica para caja 3D |
+
+Ambos están pensados para montarse dentro de una **caja 3D impresa** y corrigen el calentamiento que genera la electrónica en un espacio cerrado. El resto de proyectos reflejan la evolución hasta llegar aquí.
+
+---
+
+## Evolución del proyecto
+
+Todos los YAML del repositorio, ordenados de menor a mayor complejidad. Muestran el camino recorrido hasta la configuración final recomendada arriba.
 
 | YAML | Placa | Qué hace |
 |---|---|---|
@@ -34,12 +49,13 @@ El proyecto soporta dos plataformas hardware distintas. Elige la que prefieras:
 | `c3_sensors_best_pages_vwce.yaml` | C3 | Estación óptima + VWCE — 5 páginas, Yahoo Finance directo |
 | `c3_sensors_best_pages_vwce_dummy.yaml` | C3 | Estación óptima + VWCE — 5 páginas, precio desde HA |
 | `c3_sensors_best_pages_vwce_dummy_encoder.yaml` | C3 | Estación óptima + VWCE + encoder KY-040 — rotación automática inteligente, navegación manual, doble click para toggle auto-rotación, doble click + mantener 2s para apagar OLED, cualquier acción para encender, pulsación 10s para factory reset CO₂ |
+| **⭐ `c3_sensors_best_pages_vwce_dummy_encoder_3dbox.yaml`** | C3 | Igual que el anterior pero optimizado para montaje en **caja 3D impresa** — incluye `output_power: 10dB` para estabilizar WiFi y offsets térmicos para temperatura y humedad |
 | `cyd_dummy.yaml` | CYD | TFT 2.8" LVGL táctil — todos los datos desde HA (sin sensores físicos en el CYD) |
 | `cyd_sensors_vwce_dummy.yaml` | CYD | TFT 2.8" LVGL táctil — sensores I²C directos + VWCE desde HA |
 | `cyd_sensors_vwce.yaml` | CYD | TFT 2.8" LVGL táctil — sensores I²C directos + VWCE Yahoo Finance directo |
 | `cyd_weather_dummy.yaml` | CYD | TFT 2.8" LVGL táctil — 3 páginas: panel meteo exterior + sensores interiores (via HA) + previsión +3h/+6h/D+1/D+2 + VWCE |
 | `cyd_weather.yaml` | CYD | TFT 2.8" LVGL táctil — 3 páginas: panel meteo exterior + sensores I²C directos + previsión +3h/+6h/D+1/D+2 + VWCE + reset CO₂ táctil |
-| `cyd_weather_offset_3dbox.yaml` | CYD | Igual que `cyd_weather.yaml` pero con **compensación térmica dinámica** para CYD montado en caja 3D. Corrige el calentamiento del display ST7789 sobre los sensores I²C mediante offsets que siguen al brillo del backlight con inercia térmica τ≈5min |
+| **⭐ `cyd_weather_offset_3dbox.yaml`** | CYD | Igual que `cyd_weather.yaml` pero con **compensación térmica dinámica** para CYD montado en caja 3D. Corrige el calentamiento del display ST7789 sobre los sensores I²C mediante offsets que siguen al brillo del backlight con inercia térmica τ≈5min |
 
 ---
 
@@ -219,6 +235,12 @@ Protocolo nativo de ESPHome. HA descubre el dispositivo automáticamente. `encry
 
 El ESP32 siempre conectado — evita latencia y que HA lo marque como *unavailable*.
 
+### `wifi: output_power: 10dB` (`c3_sensors_best_pages_vwce_dummy_encoder_3dbox`)
+
+Por defecto el C3 emite a 20 dB. Al montar el módulo dentro de una caja 3D con cables cerca de la antena PCB, esos cables actúan como antenas parásitas que crean interferencia y provocan desconexiones o `Auth Expired` aunque el RSSI sea bueno (−44 dBm, por ejemplo).
+
+Bajar la potencia a 10 dB reduce las reflexiones en el entorno cercano y estabiliza la conexión. Es contra-intuitivo pero es el comportamiento observado en este proyecto con el ESP32-C3 Super Mini dentro de la caja. Solo afecta a `c3_sensors_best_pages_vwce_dummy_encoder_3dbox.yaml` — el CYD no lo necesita porque su antena no queda apantallada por los cables en su caja.
+
 ### `logger: level: DEBUG`
 
 Envía mensajes de diagnóstico por el puerto serie y desde la UI web de ESPHome. En un dispositivo estable se puede bajar a `INFO` o `WARNING` para reducir ruido.
@@ -343,6 +365,7 @@ Estado actual del repositorio: los YAML con SCD40 no fuerzan `measurement_mode: 
 │   ├── c3_sensors_best_pages_vwce.yaml
 │   ├── c3_sensors_best_pages_vwce_dummy.yaml
 │   ├── c3_sensors_best_pages_vwce_dummy_encoder.yaml
+│   ├── c3_sensors_best_pages_vwce_dummy_encoder_3dbox.yaml
 │   ├── c3_sensors_lab.yaml
 │   ├── c3_vwce.yaml
 │   ├── c3_vwce_dummy.yaml

@@ -1,0 +1,520 @@
+# ------------------------------------------------------------
+# ESPHome: c3_sensors_best_pages_vwce_dummy_encoder.yaml
+#
+# Basado en sensors_best_pages_vwce_dummy.yaml — misma lógica,
+# pero la navegación de páginas combina rotación automática
+# con control manual mediante encoder rotatorio KY-040.
+#
+# Comportamiento:
+#   Girar el eje       → cambia de página + pausa auto-rotación 10 s
+#   Click simple       → registra tiempo (espera posible 2º click); si OLED apagado, lo enciende
+#   Doble click        → activa/desactiva auto-rotación permanente; muestra estado 2 s
+#   Doble click + mantener 2 s → apaga/enciende el OLED
+#   Pulsación ≥ 10 s   → factory reset del SCD4x (borra calibración acumulada)
+#                        (tener el sensor en aire exterior ≥3 min antes)
+#
+# Pines del encoder (libres de I²C GPIO4/5):
+#   CLK → GPIO6   (pin_a)
+#   DT  → GPIO7   (pin_b)
+#   SW  → GPIO10  (pulsador)
+#   +   → 3V3
+#   GND → GND
+#
+# Páginas:
+#   1 · CO₂          ppm    SCD40
+#   2 · Temperatura  °C     AHT20
+#   3 · Humedad      %      AHT20
+#   4 · Presión      hPa    BMP280
+#   5 · VWCE         EUR    Home Assistant (sensor REST)
+# ------------------------------------------------------------
+
+esphome:
+  name: sensors-encoder
+  comment: "ESP32-C3: OLED 5 páginas — encoder KY-040 — CO2, T, H, P + VWCE (via HA)"
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+logger:
+  level: DEBUG
+
+wifi:
+  output_power: 10dB
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+
+i2c:
+  sda: GPIO4
+  scl: GPIO5
+  scan: true
+  frequency: 100kHz
+
+# ── Globals ───────────────────────────────────────────────────────────────────
+globals:
+  - id: auto_rotate
+    type: bool
+    initial_value: 'true'
+  - id: last_interaction   # millis() de la última vez que se giró el encoder
+    type: uint32_t
+    initial_value: '0'
+  - id: last_click_ms      # millis() del último click (para detectar doble click)
+    type: uint32_t
+    initial_value: '0'
+  - id: rotate_msg_until  # millis() hasta cuando mostrar el mensaje de estado de rotación
+    type: uint32_t
+    initial_value: '0'
+  - id: press_start_ms    # millis() de cuando se empieza a pulsar (detectar pulsación larga)
+    type: uint32_t
+    initial_value: '0'
+  - id: current_page      # índice de página activa (0-4). Las páginas de estado no entran en la rotación
+    type: int
+    initial_value: '0'
+  - id: restart_countdown  # contador regresivo antes de reiniciar (0 = inactivo)
+    type: int
+    initial_value: '0'
+  - id: oled_on            # estado del OLED (1=encendido, 0=apagado)
+    type: bool
+    initial_value: 'true'
+  - id: double_click_armed # indica si se detectó doble click y se espera pulsación larga
+    type: bool
+    initial_value: 'false'
+
+# ── Fuentes ───────────────────────────────────────────────────────────────────
+font:
+  - file: "gfonts://Roboto"
+    id: font_tiny
+    size: 9       # unidad, calidad CO₂, texto de pie
+  - file: "gfonts://Roboto"
+    id: font_label
+    size: 11      # etiqueta en cabecera invertida
+  - file: "gfonts://Roboto"
+    id: font_huge
+    size: 40      # valor principal — máximo que encaja en el área central
+
+# ── Sensores ──────────────────────────────────────────────────────────────────
+sensor:
+
+  # BMP280 — solo presión (temperatura internal, AHT20 es más preciso)
+  - platform: bmp280_i2c
+    address: 0x77
+    update_interval: 30s
+    temperature:
+      name: "BMP280 Temperatura"
+      id: bmp280_temp
+      internal: true
+    pressure:
+      name: "Presion"
+      id: bmp280_press
+
+  # SCD40/SCD41 — solo CO₂ se expone (T y H tienen self-heating)
+  - platform: scd4x
+    id: scd4x_sensor
+    address: 0x62
+    update_interval: 30s
+    ambient_pressure_compensation_source: bmp280_press
+    co2:
+      name: "CO2"
+      id: co2_ppm
+    temperature:
+      name: "SCD4x Temperatura"
+      id: scd4x_temp
+      internal: true
+    humidity:
+      name: "SCD4x Humedad"
+      id: scd4x_hum
+      internal: true
+
+  # AHT20 — temperatura (±0.3°C) y humedad (±2% RH)
+  # Offsets compensan el calentamiento de la electrónica dentro de la caja 3D
+  - platform: aht10
+    variant: AHT20
+    address: 0x38
+    update_interval: 30s
+    temperature:
+      name: "Temperatura"
+      id: aht20_temp
+      filters:
+        - offset: -1.1
+    humidity:
+      name: "Humedad"
+      id: aht20_hum
+      filters:
+        - offset: 5.2
+
+  # VWCE — precio recibido desde Home Assistant (sensor REST)
+  # Requiere que HA tenga configurado vwce_sensor.yaml
+  - platform: homeassistant
+    id: vwce_price
+    entity_id: sensor.vwce_precio_yahoo
+    internal: true
+
+  # WiFi RSSI — solo interno, para las barras en pantalla
+  - platform: wifi_signal
+    id: wifi_rssi
+    update_interval: 30s
+    internal: true
+
+  # ── Encoder rotatorio KY-040 ─────────────────────────────────────────────
+  # Girar → cambia de página.  No se usa el valor numérico; solo los triggers.
+  - platform: rotary_encoder
+    id: encoder
+    pin_a:
+      number: GPIO6
+      mode:
+        input: true
+        pullup: true
+    pin_b:
+      number: GPIO7
+      mode:
+        input: true
+        pullup: true
+    resolution: 2
+    internal: true
+    on_clockwise:
+      - lambda: |-
+          if (!id(oled_on)) {
+            id(oled_on) = true;
+            id(my_display).turn_on();
+            return;
+          }
+          id(last_interaction) = millis();
+          id(current_page) = (id(current_page) + 1) % 5;
+          switch (id(current_page)) {
+            case 0: id(my_display).show_page(id(page_co2));    break;
+            case 1: id(my_display).show_page(id(page_temp));   break;
+            case 2: id(my_display).show_page(id(page_hum));    break;
+            case 3: id(my_display).show_page(id(page_press));  break;
+            case 4: id(my_display).show_page(id(page_vwce));   break;
+          }
+      - component.update: my_display
+    on_anticlockwise:
+      - lambda: |-
+          if (!id(oled_on)) {
+            id(oled_on) = true;
+            id(my_display).turn_on();
+            return;
+          }
+          id(last_interaction) = millis();
+          id(current_page) = (id(current_page) + 4) % 5;
+          switch (id(current_page)) {
+            case 0: id(my_display).show_page(id(page_co2));    break;
+            case 1: id(my_display).show_page(id(page_temp));   break;
+            case 2: id(my_display).show_page(id(page_hum));    break;
+            case 3: id(my_display).show_page(id(page_press));  break;
+            case 4: id(my_display).show_page(id(page_vwce));   break;
+          }
+      - component.update: my_display
+
+# ── Botón de reinicio (interno, para usarlo desde lambdas) ───────────────────
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    internal: true
+
+# ── Pulsador del encoder (SW) ────────────────────────────────────────────────
+# Click simple       → registra tiempo (detecta si viene otro click en <400 ms)
+# Doble click         → activa/desactiva auto-rotación + va a página 1
+# Pulsación larga 5 s → recalibración forzada SCD4x a 420 ppm
+binary_sensor:
+  - platform: gpio
+    id: encoder_button
+    name: "Encoder Button"
+    pin:
+      number: GPIO10
+      mode:
+        input: true
+        pullup: true
+      inverted: true          # KY-040 SW es activo-bajo
+    internal: true
+    filters:
+      - delayed_on: 10ms     # anti-rebote
+    on_press:
+      - lambda: |-
+          if (!id(oled_on)) {
+            id(oled_on) = true;
+            id(my_display).turn_on();
+            return;
+          }
+          id(press_start_ms) = millis();
+    on_release:
+      - if:
+          condition:
+            # Pulsación larga (≥10 s) → recalibramos CO2
+            lambda: 'return (millis() - id(press_start_ms)) >= 10000;'
+          then:
+            - logger.log:
+                level: WARN
+                format: "Factory reset SCD4x — vuelve a calibracion de fabrica"
+            - scd4x.factory_reset: scd4x_sensor
+            - lambda: 'id(restart_countdown) = 3;'
+            - display.page.show: page_co2_reset
+            - component.update: my_display
+          else:
+            # Pulsación corta → click simple / doble click
+            - lambda: |-
+                uint32_t now = millis();
+                if (id(double_click_armed)) {
+                  // Si estaba armado por doble click, comprobar si fue pulsación larga (>=2s)
+                  if ((now - id(press_start_ms)) >= 2000) {
+                    id(oled_on) = !id(oled_on);
+                    if (id(oled_on)) {
+                      id(my_display).turn_on();
+                    } else {
+                      id(my_display).turn_off();
+                    }
+                  }
+                  id(double_click_armed) = false;
+                  id(last_click_ms) = 0;
+                  return;
+                }
+                if (id(last_click_ms) != 0 && now - id(last_click_ms) < 400) {
+                  // Doble click — toggle auto-rotación + armar para posible pulsación larga
+                  id(auto_rotate) = !id(auto_rotate);
+                  id(double_click_armed) = true;
+                  id(rotate_msg_until) = now + 2000;  // mostrar estado 2 s
+                  id(last_click_ms) = 0;
+                } else {
+                  // Click simple — volver a página 1
+                  id(rotate_msg_until) = 0;
+                  id(last_click_ms) = now;
+                }
+            - if:
+                condition:
+                  lambda: 'return id(rotate_msg_until) > millis();'
+                then:
+                  - display.page.show: page_rotate_status
+                  - component.update: my_display
+                else:
+                  - lambda: 'if (!id(double_click_armed)) { id(current_page) = 0; }'
+                  - display.page.show: page_co2
+                  - component.update: my_display
+
+# ── Auto-rotación: avanza página cada 6s si no se ha tocado el encoder ───────
+# La condición comprueba que auto_rotate esté activo Y que hayan pasado 10s
+# desde la última interacción con el encoder.
+interval:
+  - interval: 6s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(auto_rotate) && (millis() - id(last_interaction) > 10000);'
+          then:
+            - lambda: |-
+                id(current_page) = (id(current_page) + 1) % 5;
+                switch (id(current_page)) {
+                  case 0: id(my_display).show_page(id(page_co2));    break;
+                  case 1: id(my_display).show_page(id(page_temp));   break;
+                  case 2: id(my_display).show_page(id(page_hum));    break;
+                  case 3: id(my_display).show_page(id(page_press));  break;
+                  case 4: id(my_display).show_page(id(page_vwce));   break;
+                }
+            - component.update: my_display
+  # Cuenta atrás antes de reiniciar tras factory reset
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(restart_countdown) > 0;'
+          then:
+            - lambda: 'id(restart_countdown)--;'
+            - component.update: my_display
+            - if:
+                condition:
+                  lambda: 'return id(restart_countdown) == 0;'
+                then:
+                  - button.press: restart_button
+  - interval: 500ms
+    then:
+      - if:
+          condition:
+            lambda: 'return id(rotate_msg_until) > 0 && millis() >= id(rotate_msg_until);'
+          then:
+            - lambda: 'id(rotate_msg_until) = 0; id(current_page) = 0;'
+            - display.page.show: page_co2
+            - component.update: my_display
+
+# ── Pantalla SSD1306 128×64 ───────────────────────────────────────────────────
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    address: 0x3C
+    id: my_display
+    update_interval: 1s
+    pages:
+
+      # ── Página 1: CO₂ ────────────────────────────────────────────────────
+      - id: page_co2
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "CO2");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          for (int i = 0; i < 4; i++) {
+            int bx = 110 + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float co2 = id(co2_ppm).state;
+          if (isnan(co2)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else            it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.0f", co2);
+
+          const char* q;
+          if      (isnan(co2)) q = "---";
+          else if (co2 > 1500) q = "PELIGROSO";
+          else if (co2 > 1000) q = "MALO";
+          else if (co2 >  700) q = "ACEPTABLE";
+          else                 q = "BUENO";
+          it.printf(  0, 55, id(font_tiny), TextAlign::TOP_LEFT,  "%s", q);
+          it.printf(127, 55, id(font_tiny), TextAlign::TOP_RIGHT, "ppm");
+
+      # ── Página 2: Temperatura ────────────────────────────────────────────
+      - id: page_temp
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "TEMPERATURA");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          for (int i = 0; i < 4; i++) {
+            int bx = 110 + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float t = id(aht20_temp).state;
+          if (isnan(t)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else          it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.1f", t);
+
+          it.printf(64, 55, id(font_tiny), TextAlign::TOP_CENTER, "\xc2\xb0""C");
+
+      # ── Página 3: Humedad ────────────────────────────────────────────────
+      - id: page_hum
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "HUMEDAD");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          for (int i = 0; i < 4; i++) {
+            int bx = 110 + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float h = id(aht20_hum).state;
+          if (isnan(h)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else          it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.0f", h);
+
+          it.printf(64, 55, id(font_tiny), TextAlign::TOP_CENTER, "%%");
+
+      # ── Página 4: Presión ────────────────────────────────────────────────
+      - id: page_press
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "PRESION");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          for (int i = 0; i < 4; i++) {
+            int bx = 110 + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float p = id(bmp280_press).state;
+          if (isnan(p)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else          it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.0f", p);
+
+          it.printf(64, 55, id(font_tiny), TextAlign::TOP_CENTER, "hPa");
+
+      # ── Página 5: VWCE ──────────────────────────────────────────────────
+      - id: page_vwce
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "VWCE");
+          it.printf(124, 1, id(font_label), COLOR_OFF, TextAlign::TOP_RIGHT, "XETRA");
+
+          int rssi = (int)id(wifi_rssi).state;
+          int wbars = 0;
+          if      (rssi >= -50) wbars = 4;
+          else if (rssi >= -60) wbars = 3;
+          else if (rssi >= -70) wbars = 2;
+          else if (rssi >= -80) wbars = 1;
+          int bw = 3, bgap = 2;
+          int wbh[] = {3, 5, 7, 9};
+          int sx = 64 - (4*bw + 3*bgap) / 2;
+          for (int i = 0; i < 4; i++) {
+            int bx = sx + i * (bw + bgap);
+            int by = 12 - wbh[i];
+            if (i < wbars) it.filled_rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+            else           it.rectangle(bx, by, bw, wbh[i], COLOR_OFF);
+          }
+
+          float price = id(vwce_price).state;
+          if (isnan(price)) it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "---");
+          else              it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%.2f", price);
+
+          it.printf(64, 55, id(font_tiny), TextAlign::TOP_CENTER, "EUR");
+
+      # ── Página 6: Estado auto-rotación (temporal 2 s tras doble click) ──
+      - id: page_rotate_status
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "AUTO-ROTACION");
+          it.printf(64, 13, id(font_huge), TextAlign::TOP_CENTER, "%s",
+                    id(auto_rotate) ? "ON" : "OFF");
+
+      # ── Página 7: Confirmación factory reset CO2 (temporal 3 s) ────────────
+      - id: page_co2_reset
+        lambda: |-
+          it.filled_rectangle(0, 0, 128, 13);
+          it.printf(3, 1, id(font_label), COLOR_OFF, TextAlign::TOP_LEFT, "CO2 RESET");
+          if (id(restart_countdown) > 0)
+            it.printf(124, 1, id(font_label), COLOR_OFF, TextAlign::TOP_RIGHT, "%d", id(restart_countdown));
+          it.printf(64, 20, id(font_label), TextAlign::TOP_CENTER, "Calibracion");
+          it.printf(64, 34, id(font_label), TextAlign::TOP_CENTER, "restaurada");
+          it.printf(64, 50, id(font_tiny), TextAlign::TOP_CENTER, "ASC aprende en 7 dias");
+          if (id(restart_countdown) > 0)
+            it.printf(127, 13, id(font_label), TextAlign::TOP_RIGHT, "%d", id(restart_countdown));

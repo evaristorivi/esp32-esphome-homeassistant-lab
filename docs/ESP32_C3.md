@@ -392,3 +392,29 @@ Componentes ESPHome: `rotary_encoder` (giro CW/CCW navega 0–4 con índice manu
 esphome run esphome/c3_sensors_best_pages_vwce_dummy_encoder.yaml --device COMx
 esphome run esphome/c3_sensors_best_pages_vwce_dummy_encoder.yaml --device sensors-encoder.local
 ```
+
+---
+
+### ⭐ Proyecto 7 + caja 3D: configuración final recomendada (`c3_sensors_best_pages_vwce_dummy_encoder_3dbox.yaml`)
+
+Variante del Proyecto 7 pensada para montar el C3 dentro de una **caja 3D impresa**. Añade dos ajustes específicos para ese entorno:
+
+#### WiFi: `output_power: 10dB`
+
+Al cerrar el módulo en la caja, los cables cerca de la antena PCB del C3 actúan como antenas parásitas e introducen interferencia. Reducir la potencia de transmisión de 20 dB (por defecto) a 10 dB estabiliza la conexión — aunque es contraintuitivo, es el comportamiento observado con el ESP32-C3 Super Mini en caja.
+
+#### Offsets térmicos en AHT20
+
+La electrónica dentro de la caja (C3 + sensores) genera calor constante que falsea las lecturas de temperatura y humedad. Se aplican offsets estáticos calibrados comparando el sensor en caja con un sensor de referencia en el mismo entorno:
+
+| Magnitud | Offset | Motivo |
+|---|---|---|
+| Temperatura | −1.1 °C | Calentamiento de la electrónica dentro de la caja |
+| Humedad | +5.2 % | La HR disminuye al aumentar la temperatura (misma humedad absoluta) |
+
+A diferencia del CYD, el C3 no tiene pantalla que genere calor variable, por lo que un **offset estático** es suficiente — no se necesita la compensación dinámica del P13 del CYD.
+
+```sh
+esphome run esphome/c3_sensors_best_pages_vwce_dummy_encoder_3dbox.yaml --device COMx
+esphome run esphome/c3_sensors_best_pages_vwce_dummy_encoder_3dbox.yaml --device sensors-encoder.local
+```
