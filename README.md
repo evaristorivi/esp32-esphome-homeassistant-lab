@@ -4,6 +4,10 @@
   <img src="images/portada.png" alt="Portada del proyecto" style="width:40%;">
 </p>
 
+| | |
+|---|---|
+| ![ESP32-C3 Super Mini en caja 3D](images/c3supermini.jpeg) | ![CYD en caja 3D](images/cydfinal.jpeg) |
+
 Ejemplos prácticos para integrar **ESP32** con **ESPHome** y **Home Assistant**, mostrando cómo obtener y visualizar datos ambientales (temperatura, humedad, presión, CO₂) y financieros (precio del ETF VWCE en XETRA).
 <p align="center">
   <img src="images/eltiempo1.jpeg" alt="eltiempo1.jpeg" style="width:100%;">
