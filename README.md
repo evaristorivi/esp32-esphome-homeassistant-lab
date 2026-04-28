@@ -123,7 +123,7 @@ El repositorio incluye en `homeassistant/` los archivos listos para copiar al di
 | Archivo | Qué hace | Cómo incluirlo en `configuration.yaml` |
 |---|---|---|
 | `vwce_sensor.yaml` | Sensor REST — consulta el precio de VWCE a Yahoo Finance | `sensor: !include vwce_sensor.yaml` |
-| `air_quality_sensor.yaml` | Sensor REST \u2014 PM2.5 y PM10 desde Open-Meteo Air Quality API | `rest: !include air_quality_sensor.yaml` |
+| `air_quality_sensor.yaml` | Sensor REST — PM2.5 y PM10 desde Open-Meteo Air Quality API | `rest: !include air_quality_sensor.yaml` |
 | `weather_sensors.yaml` | Templates de condición actual y previsión horaria/diaria (`weather.get_forecasts`) | `template: !include weather_sensors.yaml` |
 
 El `configuration.yaml` incluido en el repositorio ya tiene las tres líneas configuradas como referencia.
@@ -388,8 +388,6 @@ Estado actual del repositorio: los YAML con SCD40 no fuerzan `measurement_mode: 
 │   ├── CYD.md
 │   └── ESP32_C3.md
 ├── esphome/
-│   ├── .esphome/
-│   ├── .gitignore
 │   ├── c3_sensors_best.yaml
 │   ├── c3_sensors_best_pages.yaml
 │   ├── c3_sensors_best_pages_vwce.yaml
@@ -405,7 +403,8 @@ Estado actual del repositorio: los YAML con SCD40 no fuerzan `measurement_mode: 
 │   ├── cyd_weather.yaml
 │   ├── cyd_weather_dummy.yaml
 │   ├── cyd_weather_offset_3dbox.yaml
-│   ├── secrets.yaml
+│   ├── fonts/
+│   │   └── fa-solid-900.ttf
 │   └── secrets.yaml.example
 ├── homeassistant/
 │   ├── air_quality_sensor.yaml
@@ -415,11 +414,16 @@ Estado actual del repositorio: los YAML con SCD40 no fuerzan `measurement_mode: 
 │   └── weather_sensors.yaml
 ├── images/
 │   ├── 1.png
+│   ├── HA.jpeg
+│   ├── c3supermini.jpeg
+│   ├── c3superminitumbado.jpeg
+│   ├── cyd-print3d.jpg
 │   ├── cyd.jpeg
 │   ├── cyd2.jpeg
 │   ├── cyd3.jpeg
 │   ├── cyd4.jpeg
 │   ├── cyd5.jpeg
+│   ├── cydfinal.jpeg
 │   ├── cydpino.png
 │   ├── eltiempo1.jpeg
 │   ├── eltiempo2.jpeg
@@ -427,7 +431,7 @@ Estado actual del repositorio: los YAML con SCD40 no fuerzan `measurement_mode: 
 │   ├── eltiempo4.jpeg
 │   ├── eltiempo5.jpeg
 │   ├── esquema.webp
-│   ├── HA.jpeg
+│   ├── logs.png
 │   ├── portada.png
 │   ├── sensores.jpeg
 │   └── todos_los_sensores.png
@@ -437,7 +441,6 @@ Estado actual del repositorio: los YAML con SCD40 no fuerzan `measurement_mode: 
 
 ## Mejoras futuras
 
-- Montaje permanente: hub I²C + carcasa 3D impresa — cuando se cierra el CYD en una caja el display calienta los sensores, ver [Proyecto 13 en docs/CYD.md](docs/CYD.md) para la solución con compensación térmica dinámica
 - Diseñar PCB a medida para sustituir la protoboard
 
 ---
