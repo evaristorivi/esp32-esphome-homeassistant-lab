@@ -162,7 +162,7 @@ Los proyectos 11 y 12 (`cyd_weather_dummy`, `cyd_weather`) tienen una interfaz d
 
 La barra superior ocupa los 24 px superiores de la pantalla y tiene dos zonas:
 
-- **Izquierda**: localización (p.ej. "Luanco") + hora (HH:MM) en el centro
+- **Izquierda**: localización (p.ej. "Mi Casa") + hora (HH:MM) en el centro
 - **Derecha** (4 iconos): ⏻ · ⏸ · 💡 · 📶
 
 | Icono | Función |
